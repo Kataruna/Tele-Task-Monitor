@@ -421,20 +421,16 @@ body {
 
 /* ==========================================================================
    Shared Process Context Popover (Hold to Pin / Hide)
+   Theme-aware styling via [data-theme]
    ========================================================================== */
 .proc-context-menu {
   position: fixed;
   z-index: 9999;
-  background: #2b2823;
-  color: #ebe5cf;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
-  border-radius: 6px;
-  padding: 4px;
-  min-width: 150px;
+  min-width: 154px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  padding: 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
   animation: procMenuPop 0.1s ease-out;
   touch-action: none;
   user-select: none;
@@ -456,17 +452,32 @@ body {
 }
 
 .proc-menu-header {
-  padding: 4px 8px 3px;
-  font-size: 10.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 4px;
+  font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #9c9584;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
+}
+.proc-menu-glyph {
+  font-size: 10px;
+  opacity: 0.75;
+}
+.proc-menu-title-text {
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.proc-menu-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
 }
 
 .proc-menu-item {
@@ -477,30 +488,139 @@ body {
   padding: 6px 9px;
   border: none;
   background: transparent;
-  color: #ded9c5;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
-  border-radius: 4px;
   cursor: pointer;
   text-align: left;
 }
-.proc-menu-item:hover,
-.proc-menu-item:focus-visible {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  outline: none;
-}
-.proc-menu-item.danger:hover,
-.proc-menu-item.danger:focus-visible {
-  background: rgba(235, 75, 75, 0.22);
-  color: #ff9b9b;
-}
-
 .proc-menu-item .menu-icon {
   flex-shrink: 0;
   opacity: 0.85;
 }
 .proc-menu-item:hover .menu-icon {
   opacity: 1;
+}
+
+/* --- NieR Theme Customization --- */
+[data-theme="nier"] .proc-context-menu {
+  background: #38352d;
+  color: #ebe5cf;
+  border: 1.5px solid #4e4b42;
+  border-radius: 0;
+  box-shadow: 3px 3px 0 rgba(78, 75, 66, 0.45), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+[data-theme="nier"] .proc-menu-header {
+  background: #4e4b42;
+  color: #e6e1ca;
+  border-bottom: 1px solid #57544a;
+  text-transform: uppercase;
+}
+[data-theme="nier"] .proc-menu-item {
+  color: #ded9c5;
+  border-radius: 0;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+[data-theme="nier"] .proc-menu-item:hover,
+[data-theme="nier"] .proc-menu-item:focus-visible {
+  background: #57544a;
+  color: #ffffff;
+  outline: none;
+}
+[data-theme="nier"] .proc-menu-item.danger {
+  color: #ded9c5;
+}
+[data-theme="nier"] .proc-menu-item.danger:hover,
+[data-theme="nier"] .proc-menu-item.danger:focus-visible {
+  background: #a84232;
+  color: #ffffff;
+}
+
+[data-theme="nier"] .host-theme-dropdown {
+  background: #38352d;
+  border: 1.5px solid #4e4b42;
+  border-radius: 0;
+  box-shadow: 3px 3px 0 rgba(78, 75, 66, 0.45);
+}
+[data-theme="nier"] .host-theme-dropdown .dd-title {
+  color: #ded9c5;
+  border-bottom: 1px solid #4e4b42;
+}
+[data-theme="nier"] .host-theme-dropdown .dd-item {
+  border-radius: 0;
+  color: #ded9c5;
+  text-transform: uppercase;
+}
+[data-theme="nier"] .host-theme-dropdown .dd-item:hover {
+  background: #4e4b42;
+  color: #ffffff;
+}
+[data-theme="nier"] .host-theme-dropdown .dd-item.active {
+  background: #4e4b42;
+  color: #e6e1ca;
+}
+
+/* --- Classic Dark Theme Customization --- */
+[data-theme="default"] .proc-context-menu {
+  background: #1c1e24;
+  color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+[data-theme="default"] .proc-menu-header {
+  background: rgba(255, 255, 255, 0.04);
+  color: #8b949e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+[data-theme="default"] .proc-menu-item {
+  color: #d0d7de;
+  border-radius: 4px;
+}
+[data-theme="default"] .proc-menu-item:hover,
+[data-theme="default"] .proc-menu-item:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  outline: none;
+}
+[data-theme="default"] .proc-menu-item.danger:hover,
+[data-theme="default"] .proc-menu-item.danger:focus-visible {
+  background: rgba(248, 81, 73, 0.22);
+  color: #ff7b72;
+}
+
+/* --- Doraemon Theme Customization --- */
+[data-theme="doraemon"] .proc-context-menu {
+  background: #fffdf6;
+  color: #2c3e50;
+  border: 2px solid #2196f3;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(33, 150, 243, 0.22);
+}
+[data-theme="doraemon"] .proc-menu-header {
+  background: #e3f2fd;
+  color: #1565c0;
+  border-bottom: 1.5px solid #bbdefb;
+  border-radius: 10px 10px 0 0;
+  font-weight: 800;
+}
+[data-theme="doraemon"] .proc-menu-item {
+  color: #37474f;
+  border-radius: 8px;
+  font-weight: 700;
+}
+[data-theme="doraemon"] .proc-menu-item:hover,
+[data-theme="doraemon"] .proc-menu-item:focus-visible {
+  background: #e8f5e9;
+  color: #2e7d32;
+  outline: none;
+}
+[data-theme="doraemon"] .proc-menu-item.danger:hover,
+[data-theme="doraemon"] .proc-menu-item.danger:focus-visible {
+  background: #ffebee;
+  color: #c62828;
 }

@@ -25,7 +25,7 @@
     <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="settings-header">
         <div class="settings-title-wrap">
-          <span class="settings-badge">⚙</span>
+          <span class="settings-badge">▨</span>
           <h2 id="settings-title">SYSTEM SETTINGS</h2>
         </div>
         <button type="button" id="settings-close-btn" class="settings-close-btn" title="Close Settings">✕ Close</button>
@@ -127,21 +127,26 @@
 
   <!-- Shared Process Context Popover (Hold / Right-Click) -->
   <div id="proc-context-menu" class="proc-context-menu" hidden>
-    <div class="proc-menu-header" id="proc-menu-title">Process</div>
-    <button type="button" class="proc-menu-item" id="proc-menu-pin">
-      <svg class="menu-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <line x1="8" y1="11.5" x2="8" y2="15"></line>
-        <path d="M4.5 2h7l-1 4v3.5l1.5 2H4l1.5-2V6L4.5 2z"></path>
-      </svg>
-      <span id="proc-menu-pin-lbl">Pin Process</span>
-    </button>
-    <button type="button" class="proc-menu-item danger" id="proc-menu-hide">
-      <svg class="menu-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
-        <line x1="3.5" y1="3.5" x2="12.5" y2="12.5"></line>
-        <line x1="12.5" y1="3.5" x2="3.5" y2="12.5"></line>
-      </svg>
-      <span>Hide Process</span>
-    </button>
+    <div class="proc-menu-header">
+      <span class="proc-menu-glyph" aria-hidden="true">◈</span>
+      <span id="proc-menu-title" class="proc-menu-title-text">Process</span>
+    </div>
+    <div class="proc-menu-items">
+      <button type="button" class="proc-menu-item" id="proc-menu-pin">
+        <svg class="menu-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+          <line x1="8" y1="11.5" x2="8" y2="15"></line>
+          <path d="M4 2h8l-1.2 4.5v3l1.2 1.5H4l1.2-1.5v-3L4 2z"></path>
+        </svg>
+        <span id="proc-menu-pin-lbl">Pin Process</span>
+      </button>
+      <button type="button" class="proc-menu-item danger" id="proc-menu-hide">
+        <svg class="menu-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" aria-hidden="true">
+          <line x1="3.5" y1="3.5" x2="12.5" y2="12.5"></line>
+          <line x1="12.5" y1="3.5" x2="3.5" y2="12.5"></line>
+        </svg>
+        <span>Hide Process</span>
+      </button>
+    </div>
   </div>
 
   <script type="module" src="app.js"></script>

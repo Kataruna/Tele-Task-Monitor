@@ -58,12 +58,18 @@ if (
   document.documentElement.classList.add("is-standalone");
 }
 
+document.documentElement.dataset.theme = state.themeId;
+
 function applyThemeBackgroundColor(themeId) {
   const entry = state.themes.find((t) => t.id === themeId);
   const bg = (entry && entry.bgColor) || THEME_BG_FALLBACKS[themeId] || "#cdc8b0";
+  document.documentElement.dataset.theme = themeId;
   document.documentElement.style.setProperty("--app-bg", bg);
   document.documentElement.style.backgroundColor = bg;
-  if (document.body) document.body.style.backgroundColor = bg;
+  if (document.body) {
+    document.body.dataset.theme = themeId;
+    document.body.style.backgroundColor = bg;
+  }
   if (rootEl) rootEl.style.backgroundColor = bg;
   if (safeTopPlate) safeTopPlate.style.backgroundColor = bg;
   if (safeBottomPlate) safeBottomPlate.style.backgroundColor = bg;
@@ -213,7 +219,7 @@ function toggleThemeDropdown(anchorEl) {
   setBtn.type = "button";
   setBtn.className = "dd-item";
   const setLbl = document.createElement("span");
-  setLbl.textContent = "⚙ Settings…";
+  setLbl.textContent = "▨ Settings…";
   setBtn.appendChild(setLbl);
   setBtn.addEventListener("click", (ev) => {
     ev.stopPropagation();
@@ -426,13 +432,20 @@ function showProcessMenu(x, y, procName) {
   }
 
   procMenuEl.hidden = false;
-  const w = procMenuEl.offsetWidth || 150;
+  const w = procMenuEl.offsetWidth || 154;
   const h = procMenuEl.offsetHeight || 80;
-  const pad = 8;
-  const posX = Math.min(window.innerWidth - w - pad, Math.max(pad, x));
-  const posY = Math.min(window.innerHeight - h - pad, Math.max(pad, y));
-  procMenuEl.style.left = `${posX}px`;
-  procMenuEl.style.top = `${posY}px`;
+  const pad = 10;
+  let posX = x + 6;
+  let posY = y - 10;
+  if (posX + w > window.innerWidth - pad) {
+    posX = Math.max(pad, x - w - 6);
+  }
+  if (posY + h > window.innerHeight - pad) {
+    posY = Math.max(pad, window.innerHeight - h - pad);
+  }
+  if (posY < pad) posY = pad;
+  procMenuEl.style.left = `${Math.round(posX)}px`;
+  procMenuEl.style.top = `${Math.round(posY)}px`;
 }
 
 if (procMenuPin) {
