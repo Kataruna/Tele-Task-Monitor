@@ -1,0 +1,160 @@
+:root {
+  --bg: #0b0d12;
+  --panel: #151922;
+  --line: #232a36;
+  --text: #e8ecf3;
+  --dim: #8590a3;
+  --cpu: #4cc2ff;
+  --ram: #b48cff;
+  --gpu: #5ee08a;
+  --vram: #ffb454;
+  --bad: #ff5d5d;
+  --gap: 10px;
+}
+
+.dark-shell {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: max(var(--gap), var(--top-safe-pad, var(--gap))) max(var(--gap), env(safe-area-inset-right, 0px))
+           max(var(--gap), env(safe-area-inset-bottom, 0px)) max(var(--gap), env(safe-area-inset-left, 0px));
+  display: grid;
+  gap: var(--gap);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.dark-shell h2 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.dark-shell .dim { color: var(--dim); }
+
+.dark-shell .host {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  min-width: 0;
+}
+.dark-shell .host-left {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.dark-shell .host #hostname { font-weight: 700; }
+.dark-shell .host #cpu-name { overflow: hidden; text-overflow: ellipsis; }
+
+.dark-shell .status {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dark-shell .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
+.dark-shell .dot.live { background: var(--gpu); }
+.dark-shell .dot.down { background: var(--bad); }
+
+.dark-shell .theme-btn {
+  margin-left: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dark-shell .theme-btn:hover { border-color: var(--cpu); }
+
+.dark-shell .tiles {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.dark-shell .tile,
+.dark-shell .cores,
+.dark-shell .top {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 14px;
+  min-width: 0;
+}
+
+.dark-shell .big {
+  font-size: 38px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+.dark-shell .big small { font-size: 16px; font-weight: 500; color: var(--dim); margin-left: 4px; }
+
+.dark-shell .tile[data-metric="cpu"]  .big span { color: var(--cpu); }
+.dark-shell .tile[data-metric="ram"]  .big span { color: var(--ram); }
+.dark-shell .tile[data-metric="gpu"]  .big span { color: var(--gpu); }
+.dark-shell .tile[data-metric="vram"] .big span { color: var(--vram); }
+
+.dark-shell .graph { display: block; width: 100%; height: 56px; margin-top: 6px; }
+.dark-shell .sub { margin-top: 4px; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.dark-shell .core-bars { display: flex; gap: 4px; height: 34px; align-items: flex-end; }
+.dark-shell .core-bars .core { flex: 1; background: var(--line); border-radius: 3px; height: 100%; position: relative; overflow: hidden; }
+.dark-shell .core-bars .core i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--cpu); border-radius: 3px; }
+.dark-shell .core-bars .core.hot i { background: var(--bad); }
+
+.dark-shell .tops {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: repeat(3, 1fr);
+  min-height: 0;
+}
+.dark-shell .top {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dark-shell .top ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+.dark-shell .top li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.dark-shell .top li:first-child { border-top: 0; }
+.dark-shell .top .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dark-shell .top .count { color: var(--dim); font-size: 11px; margin-left: 4px; }
+.dark-shell .top .value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.dark-shell .top .meter { grid-column: 1 / -1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.dark-shell .top .meter i { display: block; height: 100%; }
+.dark-shell #top-cpu .meter i { background: var(--cpu); }
+.dark-shell #top-mem .meter i { background: var(--ram); }
+.dark-shell #top-gpu .meter i { background: var(--gpu); }
+.dark-shell .top .empty { color: var(--dim); padding: 6px 0; }

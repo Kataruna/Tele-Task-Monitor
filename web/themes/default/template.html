@@ -1,0 +1,62 @@
+<div class="dark-shell">
+  <header class="host">
+    <div class="host-left">
+      <span id="hostname">—</span>
+      <span id="cpu-name" class="dim"></span>
+    </div>
+    <div class="status">
+      <span id="status-dot" class="dot"></span>
+      <span id="status-text">connecting…</span>
+      <span class="dim">· monitor:</span>
+      <span id="self-usage" class="dim">—</span>
+      <button id="theme-btn" class="theme-btn" type="button" title="Choose Theme">Theme ▾</button>
+    </div>
+  </header>
+
+  <section class="tiles">
+    <article class="tile" data-metric="cpu">
+      <h2>CPU</h2>
+      <div class="big"><span id="cpu-value">—</span><small>%</small></div>
+      <canvas id="cpu-graph" class="graph"></canvas>
+      <div class="sub dim">60 s</div>
+    </article>
+    <article class="tile" data-metric="ram">
+      <h2>RAM</h2>
+      <div class="big"><span id="ram-value">—</span><small id="ram-total"></small></div>
+      <canvas id="ram-graph" class="graph"></canvas>
+      <div class="sub dim" id="ram-pct"></div>
+    </article>
+    <article class="tile" data-metric="gpu">
+      <h2>GPU</h2>
+      <div class="big"><span id="gpu-value">—</span><small>%</small></div>
+      <canvas id="gpu-graph" class="graph"></canvas>
+      <div class="sub"><span id="gpu-temp">—</span> · <span id="gpu-power">—</span></div>
+    </article>
+    <article class="tile" data-metric="vram">
+      <h2>VRAM</h2>
+      <div class="big"><span id="vram-value">—</span><small id="vram-total"></small></div>
+      <canvas id="vram-graph" class="graph"></canvas>
+      <div class="sub dim" id="gpu-name"></div>
+    </article>
+  </section>
+
+  <section class="cores">
+    <h2>Cores</h2>
+    <div id="cores" class="core-bars"></div>
+  </section>
+
+  <section class="tops">
+    <article class="top">
+      <h2>Top CPU</h2>
+      <ol id="top-cpu"></ol>
+    </article>
+    <article class="top">
+      <h2>Top Memory</h2>
+      <ol id="top-mem"></ol>
+    </article>
+    <article class="top">
+      <h2>Top GPU</h2>
+      <ol id="top-gpu"></ol>
+    </article>
+  </section>
+</div>
