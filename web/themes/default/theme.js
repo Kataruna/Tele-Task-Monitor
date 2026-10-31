@@ -60,6 +60,8 @@ export function mount(root, host) {
     }
   }
 
+  let lastSample = null;
+
   function makeRows(listEl, count = 15) {
     listEl.textContent = "";
     const out = [];
@@ -72,16 +74,62 @@ export function mount(root, host) {
       const cnt = document.createElement("span");
       cnt.className = "count";
       nameWrap.append(name, cnt);
+
+      const rightWrap = document.createElement("span");
+      rightWrap.className = "row-right";
       const value = document.createElement("span");
       value.className = "value";
+
+      const actions = document.createElement("span");
+      actions.className = "row-actions";
+      const pinBtn = document.createElement("button");
+      pinBtn.type = "button";
+      pinBtn.className = "row-act-btn";
+      pinBtn.textContent = "📌";
+      pinBtn.title = "Pin / Unpin process on top";
+      const hideBtn = document.createElement("button");
+      hideBtn.type = "button";
+      hideBtn.className = "row-act-btn";
+      hideBtn.textContent = "✕";
+      hideBtn.title = "Hide process";
+      actions.append(pinBtn, hideBtn);
+      rightWrap.append(value, actions);
+
       const meter = document.createElement("div");
       meter.className = "meter";
       const bar = document.createElement("i");
       meter.appendChild(bar);
-      li.append(nameWrap, value, meter);
+      li.append(nameWrap, rightWrap, meter);
       li.hidden = true;
+
+      let entryName = null;
+      li.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (!entryName) return;
+        host.setFocusedProcess(entryName);
+        if (lastSample) renderAllTopLists(lastSample);
+      });
+      pinBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (entryName) host.togglePin(entryName);
+      });
+      hideBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (entryName) host.hideProcess(entryName);
+      });
+
       listEl.appendChild(li);
-      out.push({ li, name, count: cnt, value, bar });
+      out.push({
+        li,
+        name,
+        count: cnt,
+        value,
+        bar,
+        pinBtn,
+        setEntryName(n) {
+          entryName = n;
+        },
+      });
     }
     const empty = document.createElement("li");
     empty.className = "empty";
@@ -99,40 +147,69 @@ export function mount(root, host) {
 
   function renderRows(slot, entries, fmtValue, barPct, emptyMsg) {
     if (!entries || entries.length === 0) {
-      for (const r of slot) r.li.hidden = true;
+      for (const r of slot) {
+        r.li.hidden = true;
+        r.li.classList.remove("focused", "is-pinned", "pinned-separator");
+      }
       slot.empty.textContent = emptyMsg;
       slot.empty.hidden = false;
       return;
     }
     slot.empty.hidden = true;
+    const focused = (host.getFocusedProcess() || "").toLowerCase();
+    let visibleCount = 0;
+    let lastPinnedIdx = -1;
     for (let i = 0; i < slot.length; i++) {
       const r = slot[i];
       const e = entries[i];
       if (!e) {
         r.li.hidden = true;
+        r.li.classList.remove("focused", "is-pinned", "pinned-separator");
+        r.setEntryName(null);
         continue;
       }
       r.li.hidden = false;
-      r.name.textContent = e.name;
+      r.setEntryName(e.name);
+      const pinned = Boolean(e._pinned);
+      r.name.textContent = pinned ? `📌 ${e.name}` : e.name;
       r.count.textContent = e.count > 1 ? `×${e.count}` : "";
       r.value.textContent = fmtValue(e);
       r.bar.style.width = `${Math.max(0, Math.min(100, barPct(e))).toFixed(1)}%`;
+      r.li.classList.toggle("is-pinned", pinned);
+      r.li.classList.toggle("focused", Boolean(focused) && e.name.toLowerCase() === focused);
+      r.pinBtn.classList.toggle("active", pinned);
+      if (pinned) lastPinnedIdx = i;
+      visibleCount++;
     }
+    const hasNormalAfterPinned = lastPinnedIdx >= 0 && lastPinnedIdx < visibleCount - 1;
+    for (let i = 0; i < slot.length; i++) {
+      slot[i].li.classList.toggle("pinned-separator", hasNormalAfterPinned && i === lastPinnedIdx);
+    }
+  }
 
-    const boxH = slot.listEl ? slot.listEl.clientHeight : 0;
-    if (boxH > 0 && slot.length > 0 && !slot[0].li.hidden) {
-      const firstTop = slot[0].li.offsetTop;
-      let shown = 0;
-      for (let i = 0; i < slot.length; i++) {
-        const r = slot[i];
-        if (r.li.hidden) continue;
-        const bottom = r.li.offsetTop - firstTop + r.li.offsetHeight;
-        if (shown > 0 && bottom > boxH + 1) {
-          r.li.hidden = true;
-        } else {
-          shown++;
-        }
-      }
+  function renderAllTopLists(s) {
+    const prepCpu = host.prepareList(s.top.cpu || [], "cpu");
+    const prepMem = host.prepareList(s.top.mem || [], "mem");
+    const prepGpu = s.top.gpu === null ? null : host.prepareList(s.top.gpu || [], "gpu");
+
+    renderRows(rows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`, (e) => e.cpu, "—");
+    renderRows(
+      rows.mem,
+      prepMem,
+      (e) => host.fmtBytes(e.mem),
+      (e) => (ramTotal > 0 ? (e.mem / ramTotal) * 100 : 0),
+      "—"
+    );
+    if (prepGpu === null) {
+      renderRows(rows.gpu, [], () => "", () => 0, "GPU metrics unavailable");
+    } else {
+      renderRows(
+        rows.gpu,
+        prepGpu,
+        (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`,
+        (e) => e.gpu ?? 0,
+        "All apps idle"
+      );
     }
   }
 
@@ -149,12 +226,14 @@ export function mount(root, host) {
   return {
     onSettings(settings) {
       if (!settings) return;
-      const pg = Math.max(1, Math.min(60, Number(settings.pageLimit) || 24));
+      const pinExtra = (settings.pinnedProcesses || []).length;
+      const pg = Math.max(1, Math.min(60, Number(settings.pageLimit) || 24)) + pinExtra;
       rows = {
         cpu: makeRows(els.topCpu, pg),
         mem: makeRows(els.topMem, pg),
         gpu: makeRows(els.topGpu, pg),
       };
+      if (lastSample) renderAllTopLists(lastSample);
     },
 
     onInfo(info) {
@@ -179,6 +258,7 @@ export function mount(root, host) {
     },
 
     onSample(s) {
+      lastSample = s;
       els.cpuValue.textContent = s.cpu.usage.toFixed(1);
       const ramPct = s.ram.total > 0 ? (s.ram.used / s.ram.total) * 100 : 0;
       els.ramValue.textContent = (s.ram.used / 1073741824).toFixed(1);
@@ -203,25 +283,7 @@ export function mount(root, host) {
         coreFills[i].box.classList.toggle("hot", v >= 90);
       }
 
-      renderRows(rows.cpu, s.top.cpu, (e) => `${e.cpu.toFixed(1)}%`, (e) => e.cpu, "—");
-      renderRows(
-        rows.mem,
-        s.top.mem,
-        (e) => host.fmtBytes(e.mem),
-        (e) => (ramTotal > 0 ? (e.mem / ramTotal) * 100 : 0),
-        "—"
-      );
-      if (s.top.gpu === null) {
-        renderRows(rows.gpu, [], () => "", () => 0, "GPU metrics unavailable");
-      } else {
-        renderRows(
-          rows.gpu,
-          s.top.gpu,
-          (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`,
-          (e) => e.gpu ?? 0,
-          "All apps idle"
-        );
-      }
+      renderAllTopLists(s);
 
       els.selfUsage.textContent = `${s.self.cpu.toFixed(1)}% CPU, ${host.fmtBytes(s.self.mem)}`;
       drawAllGraphs();

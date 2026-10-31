@@ -80,6 +80,28 @@
           </div>
         </div>
 
+        <div class="settings-row settings-row-stack">
+          <div class="settings-label-row">
+            <div class="settings-label-col">
+              <label>Pinned Processes (<span id="set-pinned-count">0</span>)</label>
+              <span class="settings-hint">Pinned to the top of process lists above the separation line</span>
+            </div>
+            <button type="button" id="set-clear-pinned" class="settings-mini-btn" hidden>Unpin All</button>
+          </div>
+          <div id="set-pinned-list" class="settings-tag-list"></div>
+        </div>
+
+        <div class="settings-row settings-row-stack">
+          <div class="settings-label-row">
+            <div class="settings-label-col">
+              <label>Hidden Processes (<span id="set-hidden-count">0</span>)</label>
+              <span class="settings-hint">Filtered out from all process lists — click a tag to restore</span>
+            </div>
+            <button type="button" id="set-clear-hidden" class="settings-mini-btn" hidden>Restore All</button>
+          </div>
+          <div id="set-hidden-list" class="settings-tag-list"></div>
+        </div>
+
         <div id="settings-status" class="settings-status" hidden></div>
 
         <div class="settings-footer">

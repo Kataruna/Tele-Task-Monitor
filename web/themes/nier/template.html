@@ -57,25 +57,25 @@
 
       <!-- OVERVIEW BRIEF PANEL: CPU, Memory, and GPU all visible together -->
       <div class="nier-overview-left" id="nier-overview-left">
-        <div class="nier-brief-box" data-jump="cpu" title="Tap to view full CPU list">
-          <div class="brief-head">
-            <span>◈ Plug-in Chips: CPU</span>
+        <div class="nier-brief-box">
+          <div class="brief-head" data-jump="cpu" title="Tap header to open full CPU view">
+            <span>◈ Plug-in Chips: CPU ▸</span>
             <span id="ov-head-cpu">0.0%</span>
           </div>
           <ol id="ov-list-cpu" class="nier-chip-list compact"></ol>
         </div>
 
-        <div class="nier-brief-box" data-jump="mem" title="Tap to view full Memory list">
-          <div class="brief-head">
-            <span>▤ Plug-in Chips: Memory</span>
+        <div class="nier-brief-box">
+          <div class="brief-head" data-jump="mem" title="Tap header to open full Memory view">
+            <span>▤ Plug-in Chips: Memory ▸</span>
             <span id="ov-head-mem">0.0 GB</span>
           </div>
           <ol id="ov-list-mem" class="nier-chip-list compact"></ol>
         </div>
 
-        <div class="nier-brief-box" data-jump="gpu" title="Tap to view full GPU list">
-          <div class="brief-head">
-            <span>❖ Plug-in Chips: GPU</span>
+        <div class="nier-brief-box">
+          <div class="brief-head" data-jump="gpu" title="Tap header to open full GPU view">
+            <span>❖ Plug-in Chips: GPU ▸</span>
             <span id="ov-head-gpu">0.0%</span>
           </div>
           <ol id="ov-list-gpu" class="nier-chip-list compact"></ol>
@@ -242,6 +242,15 @@
         YoRHa System Telemetry Online. Monitoring active processes.
       </div>
       <div class="nier-prompts">
+        <button type="button" class="nier-prompt-btn" id="nier-pin-focused-btn" hidden title="Pin or Unpin Focused Process (P)">
+          <span class="key-cap">P</span> <span id="nier-pin-focused-lbl">Pin</span>
+        </button>
+        <button type="button" class="nier-prompt-btn" id="nier-hide-focused-btn" hidden title="Hide Focused Process (H)">
+          <span class="key-cap">H</span> Hide
+        </button>
+        <button type="button" class="nier-prompt-btn" id="nier-hidden-btn" hidden title="Manage Pinned & Hidden Processes">
+          <span class="key-cap" id="nier-hidden-cnt">0</span> Hidden
+        </button>
         <button type="button" class="nier-prompt-btn" id="nier-back-btn" hidden title="Return to Overview (Esc)">
           <span class="key-cap">Esc</span> Overview
         </button>

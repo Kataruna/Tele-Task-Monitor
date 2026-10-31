@@ -1,7 +1,8 @@
 //! Pure aggregation: group per-process rows by app name and build the top-N lists.
 //! No OS calls here, so everything is unit-testable.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{OnceLock, RwLock};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::model::{AppEntry, Top};
@@ -36,6 +37,24 @@ pub fn current_top_n() -> usize {
 
 pub fn set_top_n(n: usize) {
     LIVE_TOP_N.store(n.clamp(1, 100), Ordering::Relaxed);
+}
+
+#[derive(Default, Clone)]
+struct ProcPrefs {
+    pinned: HashSet<String>,
+    hidden: HashSet<String>,
+}
+
+static LIVE_PREFS: OnceLock<RwLock<ProcPrefs>> = OnceLock::new();
+
+fn prefs_lock() -> &'static RwLock<ProcPrefs> {
+    LIVE_PREFS.get_or_init(|| RwLock::new(ProcPrefs::default()))
+}
+
+pub fn set_process_prefs(pinned: &[String], hidden: &[String]) {
+    let mut guard = prefs_lock().write().expect("prefs lock");
+    guard.pinned = pinned.iter().map(|s| s.to_lowercase()).collect();
+    guard.hidden = hidden.iter().map(|s| s.to_lowercase()).collect();
 }
 
 /// Round to one decimal place (spec §4: percentages are rounded to 1 decimal).
@@ -91,28 +110,56 @@ fn by_name(a: &AppEntry, b: &AppEntry) -> std::cmp::Ordering {
 /// - `gpu`: `None` when `!gpu_available`; otherwise apps with `gpu > 0` or `vram > 0`,
 ///   sorted by `gpu` desc then `vram` desc then name asc, truncated to `n`.
 pub fn build_top(apps: &[AppEntry], n: usize, gpu_available: bool) -> Top {
-    let mut by_cpu = apps.to_vec();
-    by_cpu.sort_by(|a, b| b.cpu.total_cmp(&a.cpu).then_with(|| by_name(a, b)));
-    by_cpu.truncate(n);
+    let prefs = prefs_lock().read().expect("prefs lock").clone();
+    build_top_with_prefs(apps, n, gpu_available, &prefs.pinned, &prefs.hidden)
+}
 
-    let mut by_mem = apps.to_vec();
-    by_mem.sort_by(|a, b| b.mem.cmp(&a.mem).then_with(|| by_name(a, b)));
-    by_mem.truncate(n);
+pub fn build_top_with_prefs(
+    apps: &[AppEntry],
+    n: usize,
+    gpu_available: bool,
+    pinned: &HashSet<String>,
+    hidden: &HashSet<String>,
+) -> Top {
+    let visible: Vec<AppEntry> = apps
+        .iter()
+        .filter(|a| !hidden.contains(&a.name.to_lowercase()))
+        .cloned()
+        .collect();
+    let is_pin = |a: &AppEntry| pinned.contains(&a.name.to_lowercase());
+    let cap = n.saturating_add(pinned.len());
+
+    let mut by_cpu = visible.clone();
+    by_cpu.sort_by(|a, b| {
+        is_pin(b)
+            .cmp(&is_pin(a))
+            .then_with(|| b.cpu.total_cmp(&a.cpu))
+            .then_with(|| by_name(a, b))
+    });
+    by_cpu.truncate(cap);
+
+    let mut by_mem = visible.clone();
+    by_mem.sort_by(|a, b| {
+        is_pin(b)
+            .cmp(&is_pin(a))
+            .then_with(|| b.mem.cmp(&a.mem))
+            .then_with(|| by_name(a, b))
+    });
+    by_mem.truncate(cap);
 
     let gpu = gpu_available.then(|| {
-        let mut by_gpu: Vec<AppEntry> = apps
-            .iter()
-            .filter(|a| a.gpu.unwrap_or(0.0) > 0.0 || a.vram.unwrap_or(0) > 0)
-            .cloned()
+        let mut by_gpu: Vec<AppEntry> = visible
+            .into_iter()
+            .filter(|a| is_pin(a) || a.gpu.unwrap_or(0.0) > 0.0 || a.vram.unwrap_or(0) > 0)
             .collect();
         by_gpu.sort_by(|a, b| {
-            b.gpu
-                .unwrap_or(0.0)
-                .total_cmp(&a.gpu.unwrap_or(0.0))
+            is_pin(b)
+                .cmp(&is_pin(a))
+                .then_with(|| b.gpu.unwrap_or(0.0).total_cmp(&a.gpu.unwrap_or(0.0)))
                 .then_with(|| b.vram.unwrap_or(0).cmp(&a.vram.unwrap_or(0)))
                 .then_with(|| by_name(a, b))
         });
-        by_gpu.truncate(n);
+        by_gpu.truncate(cap);
         by_gpu
     });
 
@@ -210,5 +257,32 @@ mod tests {
         let top = build_top(&group_by_name(&rows, Some(&gpu)), TOP_N, true);
         let names: Vec<&str> = top.gpu.as_ref().unwrap().iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["game.exe", "holder.exe", "obs.exe"]);
+    }
+
+    #[test]
+    fn build_top_with_prefs_pins_to_top_and_filters_hidden() {
+        let rows = vec![
+            row(1, "heavy.exe", 50.0, 5000),
+            row(2, "noisy.exe", 40.0, 4000),
+            row(3, "normal.exe", 20.0, 2000),
+            row(4, "favorite.exe", 0.5, 100),
+        ];
+        let mut gpu = HashMap::new();
+        gpu.insert(1, ProcGpu { gpu: 80.0, vram: 2000 });
+        gpu.insert(3, ProcGpu { gpu: 10.0, vram: 500 });
+        let apps = group_by_name(&rows, Some(&gpu));
+
+        let pinned: HashSet<String> = ["favorite.exe".to_string()].into_iter().collect();
+        let hidden: HashSet<String> = ["noisy.exe".to_string()].into_iter().collect();
+
+        let top = build_top_with_prefs(&apps, 3, true, &pinned, &hidden);
+        let cpu_names: Vec<&str> = top.cpu.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(cpu_names, vec!["favorite.exe", "heavy.exe", "normal.exe"]);
+
+        let mem_names: Vec<&str> = top.mem.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(mem_names, vec!["favorite.exe", "heavy.exe", "normal.exe"]);
+
+        let gpu_names: Vec<&str> = top.gpu.as_ref().unwrap().iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(gpu_names, vec!["favorite.exe", "heavy.exe", "normal.exe"]);
     }
 }

@@ -15,11 +15,14 @@ const state = {
     vram: [],
   },
   themeId: "nier",
+  focusedProcess: null,
   settings: {
     port: Number(window.location.port) || 8800,
     defaultTheme: "nier",
     overviewLimit: 8,
     pageLimit: 24,
+    pinnedProcesses: [],
+    hiddenProcesses: [],
   },
   themes: [
     { id: "nier", name: "Automata", bgColor: "#cdc8b0" },
@@ -259,10 +262,200 @@ const setThemeEl = document.getElementById("set-default-theme");
 const setOvLimitEl = document.getElementById("set-overview-limit");
 const setPageLimitEl = document.getElementById("set-page-limit");
 const setPortEl = document.getElementById("set-port");
+const setPinnedCountEl = document.getElementById("set-pinned-count");
+const setHiddenCountEl = document.getElementById("set-hidden-count");
+const setPinnedListEl = document.getElementById("set-pinned-list");
+const setHiddenListEl = document.getElementById("set-hidden-list");
+const setClearPinnedBtn = document.getElementById("set-clear-pinned");
+const setClearHiddenBtn = document.getElementById("set-clear-hidden");
 const settingsStatusEl = document.getElementById("settings-status");
 const settingsCloseBtn = document.getElementById("settings-close-btn");
 const settingsCancelBtn = document.getElementById("settings-cancel-btn");
 const settingsResetBtn = document.getElementById("settings-reset-btn");
+
+let draftPinned = [];
+let draftHidden = [];
+
+function isPinned(name) {
+  if (!name) return false;
+  const k = name.toLowerCase();
+  const list = state.settings.pinnedProcesses || [];
+  return list.some((p) => p.toLowerCase() === k);
+}
+
+function isHidden(name) {
+  if (!name) return false;
+  const k = name.toLowerCase();
+  const list = state.settings.hiddenProcesses || [];
+  return list.some((p) => p.toLowerCase() === k);
+}
+
+function notifyThemeUpdate() {
+  if (!activeThemeInstance) return;
+  if (typeof activeThemeInstance.onSettings === "function") {
+    activeThemeInstance.onSettings(state.settings);
+  }
+  if (state.sample && typeof activeThemeInstance.onSample === "function") {
+    activeThemeInstance.onSample(state.sample);
+  }
+}
+
+async function persistSettingsNow() {
+  try {
+    const res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state.settings),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      state.settings = { ...state.settings, ...data };
+    }
+  } catch (_) {}
+}
+
+function togglePin(name) {
+  if (!name) return;
+  const k = name.toLowerCase();
+  const cur = Array.isArray(state.settings.pinnedProcesses) ? [...state.settings.pinnedProcesses] : [];
+  const idx = cur.findIndex((p) => p.toLowerCase() === k);
+  if (idx >= 0) {
+    cur.splice(idx, 1);
+  } else {
+    cur.push(name);
+  }
+  state.settings.pinnedProcesses = cur;
+  draftPinned = [...cur];
+  renderSettingsProcessTags();
+  notifyThemeUpdate();
+  persistSettingsNow();
+}
+
+function hideProcess(name) {
+  if (!name) return;
+  const k = name.toLowerCase();
+  const curHidden = Array.isArray(state.settings.hiddenProcesses) ? [...state.settings.hiddenProcesses] : [];
+  if (!curHidden.some((p) => p.toLowerCase() === k)) {
+    curHidden.push(name);
+  }
+  const curPinned = Array.isArray(state.settings.pinnedProcesses)
+    ? state.settings.pinnedProcesses.filter((p) => p.toLowerCase() !== k)
+    : [];
+  if (state.focusedProcess && state.focusedProcess.toLowerCase() === k) {
+    state.focusedProcess = null;
+  }
+  state.settings.hiddenProcesses = curHidden;
+  state.settings.pinnedProcesses = curPinned;
+  draftHidden = [...curHidden];
+  draftPinned = [...curPinned];
+  renderSettingsProcessTags();
+  notifyThemeUpdate();
+  persistSettingsNow();
+}
+
+function unhideProcess(name) {
+  if (!name) return;
+  const k = name.toLowerCase();
+  const curHidden = Array.isArray(state.settings.hiddenProcesses)
+    ? state.settings.hiddenProcesses.filter((p) => p.toLowerCase() !== k)
+    : [];
+  state.settings.hiddenProcesses = curHidden;
+  draftHidden = [...curHidden];
+  renderSettingsProcessTags();
+  notifyThemeUpdate();
+  persistSettingsNow();
+}
+
+function prepareList(entries, metric = "cpu") {
+  if (!Array.isArray(entries)) return [];
+  const visible = entries
+    .filter((e) => e && e.name && !isHidden(e.name))
+    .map((e) => ({ ...e, _pinned: isPinned(e.name) }));
+
+  visible.sort((a, b) => {
+    if (a._pinned !== b._pinned) return a._pinned ? -1 : 1;
+    if (metric === "mem") {
+      if (b.mem !== a.mem) return b.mem - a.mem;
+    } else if (metric === "gpu") {
+      const ga = a.gpu ?? 0;
+      const gb = b.gpu ?? 0;
+      if (gb !== ga) return gb - ga;
+      const va = a.vram ?? 0;
+      const vb = b.vram ?? 0;
+      if (vb !== va) return vb - va;
+    } else {
+      if (b.cpu !== a.cpu) return b.cpu - a.cpu;
+    }
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
+  return visible;
+}
+
+function renderSettingsProcessTags() {
+  if (setPinnedCountEl) setPinnedCountEl.textContent = String(draftPinned.length);
+  if (setHiddenCountEl) setHiddenCountEl.textContent = String(draftHidden.length);
+  if (setClearPinnedBtn) setClearPinnedBtn.hidden = draftPinned.length === 0;
+  if (setClearHiddenBtn) setClearHiddenBtn.hidden = draftHidden.length === 0;
+
+  if (setPinnedListEl) {
+    setPinnedListEl.textContent = "";
+    if (draftPinned.length === 0) {
+      const span = document.createElement("span");
+      span.className = "settings-tag-empty";
+      span.textContent = "No pinned processes — click 📌 on any process row to pin it on top.";
+      setPinnedListEl.appendChild(span);
+    } else {
+      for (const name of draftPinned) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "settings-tag";
+        btn.title = `Click to unpin ${name}`;
+        btn.innerHTML = `<span>📌 ${name}</span><span class="tag-x">✕</span>`;
+        btn.addEventListener("click", () => {
+          draftPinned = draftPinned.filter((p) => p.toLowerCase() !== name.toLowerCase());
+          renderSettingsProcessTags();
+        });
+        setPinnedListEl.appendChild(btn);
+      }
+    }
+  }
+
+  if (setHiddenListEl) {
+    setHiddenListEl.textContent = "";
+    if (draftHidden.length === 0) {
+      const span = document.createElement("span");
+      span.className = "settings-tag-empty";
+      span.textContent = "No hidden processes — click ✕ on any process row to hide it.";
+      setHiddenListEl.appendChild(span);
+    } else {
+      for (const name of draftHidden) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "settings-tag";
+        btn.title = `Click to restore ${name}`;
+        btn.innerHTML = `<span>${name}</span><span class="tag-x">✕</span>`;
+        btn.addEventListener("click", () => {
+          draftHidden = draftHidden.filter((p) => p.toLowerCase() !== name.toLowerCase());
+          renderSettingsProcessTags();
+        });
+        setHiddenListEl.appendChild(btn);
+      }
+    }
+  }
+}
+
+if (setClearPinnedBtn) {
+  setClearPinnedBtn.addEventListener("click", () => {
+    draftPinned = [];
+    renderSettingsProcessTags();
+  });
+}
+if (setClearHiddenBtn) {
+  setClearHiddenBtn.addEventListener("click", () => {
+    draftHidden = [];
+    renderSettingsProcessTags();
+  });
+}
 
 function showSettingsStatus(msg, isError = false) {
   if (!settingsStatusEl) return;
@@ -293,6 +486,9 @@ function openSettingsModal() {
   if (setOvLimitEl) setOvLimitEl.value = String(state.settings.overviewLimit || 8);
   if (setPageLimitEl) setPageLimitEl.value = String(state.settings.pageLimit || 24);
   if (setPortEl) setPortEl.value = String(state.settings.port || 8800);
+  draftPinned = Array.isArray(state.settings.pinnedProcesses) ? [...state.settings.pinnedProcesses] : [];
+  draftHidden = Array.isArray(state.settings.hiddenProcesses) ? [...state.settings.hiddenProcesses] : [];
+  renderSettingsProcessTags();
   showSettingsStatus("");
   settingsOverlay.hidden = false;
 }
@@ -327,6 +523,9 @@ if (settingsResetBtn) {
     if (setOvLimitEl) setOvLimitEl.value = "8";
     if (setPageLimitEl) setPageLimitEl.value = "24";
     if (setPortEl) setPortEl.value = "8800";
+    draftPinned = [];
+    draftHidden = [];
+    renderSettingsProcessTags();
     showSettingsStatus("Defaults restored — click Save & Apply to confirm.");
   });
 }
@@ -340,6 +539,8 @@ if (settingsForm) {
       defaultTheme: setThemeEl.value || "nier",
       overviewLimit: Math.max(1, Math.min(25, Number(setOvLimitEl.value) || 8)),
       pageLimit: Math.max(1, Math.min(60, Number(setPageLimitEl.value) || 24)),
+      pinnedProcesses: draftPinned,
+      hiddenProcesses: draftHidden,
     };
 
     showSettingsStatus("Saving settings…");
@@ -375,8 +576,8 @@ if (settingsForm) {
       closeSettingsModal();
       if (data.defaultTheme !== state.themeId) {
         await loadTheme(data.defaultTheme);
-      } else if (activeThemeInstance && typeof activeThemeInstance.onSettings === "function") {
-        activeThemeInstance.onSettings(state.settings);
+      } else {
+        notifyThemeUpdate();
       }
     } catch (err) {
       showSettingsStatus(`Could not reach server: ${err}`, true);
@@ -390,6 +591,16 @@ const hostApi = {
   drawGraph,
   getState: () => state,
   getSettings: () => state.settings,
+  isPinned,
+  isHidden,
+  togglePin,
+  hideProcess,
+  unhideProcess,
+  prepareList,
+  getFocusedProcess: () => state.focusedProcess,
+  setFocusedProcess: (name) => {
+    state.focusedProcess = name || null;
+  },
   openSettings: (ev) => {
     if (ev) ev.stopPropagation();
     openSettingsModal();

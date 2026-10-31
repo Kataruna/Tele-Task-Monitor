@@ -15,7 +15,6 @@ export function mount(root, host) {
   const $ = (id) => root.querySelector(`#${id}`);
 
   let activeTab = "overview";
-  let selectedIdx = 0;
   let coreSquares = [];
   let lastSample = null;
   let overviewLimit = OVERVIEW_ROWS;
@@ -33,6 +32,11 @@ export function mount(root, host) {
     titleBack: $("nier-title-back"),
     inlineBack: $("nier-inline-back"),
     backBtn: $("nier-back-btn"),
+    pinFocusedBtn: $("nier-pin-focused-btn"),
+    pinFocusedLbl: $("nier-pin-focused-lbl"),
+    hideFocusedBtn: $("nier-hide-focused-btn"),
+    hiddenBtn: $("nier-hidden-btn"),
+    hiddenCnt: $("nier-hidden-cnt"),
     storageVal: $("nier-storage-val"),
     mainView: $("nier-main-view"),
     intelView: $("nier-intel-view"),
@@ -46,6 +50,7 @@ export function mount(root, host) {
     ovListGpu: $("ov-list-gpu"),
     sortName: $("nier-sort-name"),
     chipList: $("nier-chip-list"),
+    sbThumb: root.querySelector(".nier-scrollbar .sb-thumb"),
     stackMode: $("nier-stack-mode"),
     stackPct: $("nier-stack-pct"),
     stackPointer: $("nier-stack-pointer"),
@@ -124,6 +129,22 @@ export function mount(root, host) {
   if (els.inlineBack) els.inlineBack.addEventListener("click", () => setTab("overview"));
   if (els.backBtn) els.backBtn.addEventListener("click", () => setTab("overview"));
 
+  if (els.pinFocusedBtn) {
+    els.pinFocusedBtn.addEventListener("click", () => {
+      const target = getEffectiveFocusedName();
+      if (target) host.togglePin(target);
+    });
+  }
+  if (els.hideFocusedBtn) {
+    els.hideFocusedBtn.addEventListener("click", () => {
+      const target = getEffectiveFocusedName();
+      if (target) host.hideProcess(target);
+    });
+  }
+  if (els.hiddenBtn) {
+    els.hiddenBtn.addEventListener("click", (ev) => host.openSettings(ev));
+  }
+
   els.tabBtn.addEventListener("click", () => {
     const next = TABS[(TABS.indexOf(activeTab) + 1) % TABS.length];
     setTab(next);
@@ -131,15 +152,75 @@ export function mount(root, host) {
 
   els.themeBtn.addEventListener("click", (ev) => host.openThemeMenu(els.themeBtn, ev));
 
+  function updateCustomScrollbar() {
+    if (!els.chipList || !els.sbThumb) return;
+    const { scrollTop, scrollHeight, clientHeight } = els.chipList;
+    if (scrollHeight <= clientHeight || scrollHeight === 0) {
+      els.sbThumb.style.height = "100%";
+      els.sbThumb.style.top = "0%";
+      return;
+    }
+    const thumbPct = Math.max(15, Math.min(100, (clientHeight / scrollHeight) * 100));
+    const maxTop = 100 - thumbPct;
+    const scrollRatio = scrollTop / Math.max(1, scrollHeight - clientHeight);
+    els.sbThumb.style.height = `${thumbPct.toFixed(1)}%`;
+    els.sbThumb.style.top = `${(scrollRatio * maxTop).toFixed(1)}%`;
+  }
+
+  if (els.chipList) {
+    els.chipList.addEventListener("scroll", updateCustomScrollbar, { passive: true });
+  }
+
+  function getActiveStackEntries() {
+    if (!lastSample) return [];
+    if (activeTab === "mem") return host.prepareList(lastSample.top.mem || [], "mem");
+    if (activeTab === "gpu") return host.prepareList(lastSample.top.gpu || [], "gpu");
+    return host.prepareList(lastSample.top.cpu || [], "cpu");
+  }
+
+  function getEffectiveFocusedName() {
+    const explicit = host.getFocusedProcess();
+    if (explicit) return explicit;
+    const list = getActiveStackEntries();
+    return list[0] ? list[0].name : null;
+  }
+
+  function stepFocus(delta) {
+    const list = getActiveStackEntries();
+    if (list.length === 0) return;
+    const curName = host.getFocusedProcess();
+    let curIdx = curName
+      ? list.findIndex((e) => e.name.toLowerCase() === curName.toLowerCase())
+      : 0;
+    if (curIdx < 0) curIdx = 0;
+    const nextIdx = Math.max(0, Math.min(list.length - 1, curIdx + delta));
+    const nextEntry = list[nextIdx];
+    if (nextEntry) {
+      host.setFocusedProcess(nextEntry.name);
+      if (lastSample) renderSample(lastSample);
+      const rowObj = singleRows[nextIdx];
+      if (rowObj && rowObj.li && !rowObj.li.hidden) {
+        rowObj.li.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }
+
   const onKeyDown = (ev) => {
+    if (ev.target && (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT")) return;
     if (ev.key === "Escape" || ev.key === "Backspace") {
       if (activeTab !== "overview") setTab("overview");
     } else if (ev.key === "ArrowUp" || ev.key === "w" || ev.key === "W") {
-      selectedIdx = Math.max(0, selectedIdx - 1);
-      if (lastSample) renderSample(lastSample);
+      ev.preventDefault();
+      stepFocus(-1);
     } else if (ev.key === "ArrowDown" || ev.key === "s" || ev.key === "S") {
-      selectedIdx = Math.min(pageLimit - 1, selectedIdx + 1);
-      if (lastSample) renderSample(lastSample);
+      ev.preventDefault();
+      stepFocus(1);
+    } else if (ev.key === "p" || ev.key === "P") {
+      const target = getEffectiveFocusedName();
+      if (target) host.togglePin(target);
+    } else if (ev.key === "h" || ev.key === "H") {
+      const target = getEffectiveFocusedName();
+      if (target) host.hideProcess(target);
     } else if (ev.key === "ArrowLeft") {
       const next = TABS[(TABS.indexOf(activeTab) - 1 + TABS.length) % TABS.length];
       setTab(next);
@@ -163,7 +244,7 @@ export function mount(root, host) {
     }
   }
 
-  function makeChipRows(listEl, count = MAX_ROWS, interactive = false) {
+  function makeChipRows(listEl, count = MAX_ROWS) {
     listEl.textContent = "";
     const out = [];
     out.listEl = listEl;
@@ -175,6 +256,10 @@ export function mount(root, host) {
       left.className = "chip-left";
       const icon = document.createElement("span");
       icon.className = "chip-icon";
+      const pinBadge = document.createElement("span");
+      pinBadge.className = "chip-pin-badge";
+      pinBadge.textContent = "📌";
+      pinBadge.hidden = true;
       const name = document.createElement("span");
       name.className = "chip-name";
       const cnt = document.createElement("span");
@@ -182,22 +267,59 @@ export function mount(root, host) {
       const diamond = document.createElement("span");
       diamond.className = "chip-diamond";
       diamond.textContent = "◆";
-      left.append(icon, name, cnt, diamond);
+      left.append(icon, pinBadge, name, cnt, diamond);
 
+      const right = document.createElement("span");
+      right.className = "chip-right";
       const cost = document.createElement("span");
       cost.className = "chip-cost";
 
-      li.append(left, cost);
+      const actions = document.createElement("span");
+      actions.className = "chip-actions";
+      const pinBtn = document.createElement("button");
+      pinBtn.type = "button";
+      pinBtn.className = "chip-act-btn";
+      pinBtn.textContent = "📌";
+      pinBtn.title = "Pin / Unpin process on top";
+      const hideBtn = document.createElement("button");
+      hideBtn.type = "button";
+      hideBtn.className = "chip-act-btn";
+      hideBtn.textContent = "✕";
+      hideBtn.title = "Hide process";
+      actions.append(pinBtn, hideBtn);
+
+      right.append(cost, actions);
+      li.append(left, right);
       li.hidden = true;
-      if (interactive) {
-        li.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          selectedIdx = i;
-          if (lastSample) renderSample(lastSample);
-        });
-      }
+
+      let rowEntryName = null;
+      li.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (!rowEntryName) return;
+        host.setFocusedProcess(rowEntryName);
+        if (lastSample) renderSample(lastSample);
+      });
+      pinBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (rowEntryName) host.togglePin(rowEntryName);
+      });
+      hideBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (rowEntryName) host.hideProcess(rowEntryName);
+      });
+
       listEl.appendChild(li);
-      out.push({ li, name, count: cnt, cost });
+      out.push({
+        li,
+        pinBadge,
+        name,
+        count: cnt,
+        cost,
+        pinBtn,
+        setEntryName(n) {
+          rowEntryName = n;
+        },
+      });
     }
     return out;
   }
@@ -208,25 +330,20 @@ export function mount(root, host) {
   let stackSlices = [];
 
   function rebuildAllLists() {
-    els.ovListCpu.style.gridTemplateRows = `repeat(${overviewLimit}, minmax(0, 1fr))`;
-    els.ovListMem.style.gridTemplateRows = `repeat(${overviewLimit}, minmax(0, 1fr))`;
-    els.ovListGpu.style.gridTemplateRows = `repeat(${overviewLimit}, minmax(0, 1fr))`;
-
-    els.chipList.style.gridTemplateRows = `repeat(${pageLimit}, minmax(0, 1fr))`;
-    els.intelCpu.style.gridTemplateRows = `repeat(${pageLimit}, minmax(0, 1fr))`;
-    els.intelMem.style.gridTemplateRows = `repeat(${pageLimit}, minmax(0, 1fr))`;
-    els.intelGpu.style.gridTemplateRows = `repeat(${pageLimit}, minmax(0, 1fr))`;
+    const pinnedExtra = (host.getSettings().pinnedProcesses || []).length;
+    const ovCap = overviewLimit + pinnedExtra;
+    const pgCap = pageLimit + pinnedExtra;
 
     ovRows = {
-      cpu: makeChipRows(els.ovListCpu, overviewLimit, false),
-      mem: makeChipRows(els.ovListMem, overviewLimit, false),
-      gpu: makeChipRows(els.ovListGpu, overviewLimit, false),
+      cpu: makeChipRows(els.ovListCpu, ovCap),
+      mem: makeChipRows(els.ovListMem, ovCap),
+      gpu: makeChipRows(els.ovListGpu, ovCap),
     };
-    singleRows = makeChipRows(els.chipList, pageLimit, true);
+    singleRows = makeChipRows(els.chipList, pgCap);
     intelRows = {
-      cpu: makeChipRows(els.intelCpu, pageLimit, false),
-      mem: makeChipRows(els.intelMem, pageLimit, false),
-      gpu: makeChipRows(els.intelGpu, pageLimit, false),
+      cpu: makeChipRows(els.intelCpu, pgCap),
+      mem: makeChipRows(els.intelMem, pgCap),
+      gpu: makeChipRows(els.intelGpu, pgCap),
     };
 
     els.stackBars.textContent = "";
@@ -234,7 +351,7 @@ export function mount(root, host) {
     const spacerTop = document.createElement("div");
     spacerTop.style.flex = "1";
     els.stackBars.appendChild(spacerTop);
-    for (let i = 0; i < pageLimit + 1; i++) {
+    for (let i = 0; i < pgCap + 1; i++) {
       const div = document.createElement("div");
       div.className = "stack-slice c0";
       const lbl = document.createElement("span");
@@ -243,8 +360,8 @@ export function mount(root, host) {
       div.addEventListener("click", () => {
         if (div.dataset.jump) {
           setTab(div.dataset.jump);
-        } else if (div.dataset.idx != null) {
-          selectedIdx = Number(div.dataset.idx);
+        } else if (div.dataset.procName) {
+          host.setFocusedProcess(div.dataset.procName);
           if (lastSample) renderSample(lastSample);
         }
       });
@@ -255,27 +372,53 @@ export function mount(root, host) {
 
   rebuildAllLists();
 
-  function fillChipRows(rows, entries, fmtCost, activeIdx = -1) {
+  function resolveFocusedIndex(entries, visibleCount) {
+    if (visibleCount <= 0 || !entries || entries.length === 0) return -1;
+    const focused = host.getFocusedProcess();
+    if (focused) {
+      const k = focused.toLowerCase();
+      for (let i = 0; i < visibleCount; i++) {
+        if (entries[i] && entries[i].name.toLowerCase() === k) {
+          return i;
+        }
+      }
+    }
+    return 0;
+  }
+
+  function fillChipRows(rows, entries, fmtCost) {
     let visibleCount = 0;
+    let lastPinnedIdx = -1;
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const e = entries ? entries[i] : null;
       if (!e) {
         r.li.hidden = true;
+        r.li.classList.remove("selected", "is-pinned", "pinned-separator");
+        r.setEntryName(null);
         continue;
       }
       r.li.hidden = false;
+      r.setEntryName(e.name);
       r.name.textContent = e.name;
       r.count.textContent = e.count > 1 ? `×${e.count}` : "";
       r.cost.textContent = `【${fmtCost(e)}】`;
+      const pinned = Boolean(e._pinned);
+      r.pinBadge.hidden = !pinned;
+      r.li.classList.toggle("is-pinned", pinned);
+      r.pinBtn.classList.toggle("active", pinned);
+      r.pinBtn.title = pinned ? `Unpin ${e.name}` : `Pin ${e.name} on top`;
+      if (pinned) lastPinnedIdx = i;
       visibleCount++;
     }
 
-    const clampedActive = visibleCount > 0 ? Math.min(activeIdx, visibleCount - 1) : -1;
+    const hasNormalAfterPinned = lastPinnedIdx >= 0 && lastPinnedIdx < visibleCount - 1;
+    const activeIdx = resolveFocusedIndex(entries, visibleCount);
     for (let i = 0; i < rows.length; i++) {
-      rows[i].li.classList.toggle("selected", i === clampedActive);
+      rows[i].li.classList.toggle("selected", i === activeIdx);
+      rows[i].li.classList.toggle("pinned-separator", hasNormalAfterPinned && i === lastPinnedIdx);
     }
-    return visibleCount;
+    return { visibleCount, activeIdx };
   }
 
   function renderSample(s) {
@@ -291,18 +434,21 @@ export function mount(root, host) {
 
     els.storageVal.textContent = `CPU ${s.cpu.usage.toFixed(0)}% · RAM ${ramUsedGB}/${ramTotalGB}G · GPU ${gpuUsage.toFixed(0)}%`;
 
-    // Overview Left Brief Boxes (shows as many rows as fit each 1/3 box)
+    const prepCpu = host.prepareList(s.top.cpu || [], "cpu");
+    const prepMem = host.prepareList(s.top.mem || [], "mem");
+    const prepGpu = host.prepareList(s.top.gpu || [], "gpu");
+
+    // Overview Left Brief Boxes
     els.ovHeadCpu.textContent = `${s.cpu.usage.toFixed(1)}% Total`;
     els.ovHeadMem.textContent = `${ramUsedGB} / ${ramTotalGB} GB`;
     els.ovHeadGpu.textContent = s.gpu ? `${s.gpu.usage.toFixed(1)}% · ${vramUsedGB}G` : "Unavailable";
 
-    fillChipRows(ovRows.cpu, s.top.cpu || [], (e) => `${e.cpu.toFixed(1)}%`, 0);
-    fillChipRows(ovRows.mem, s.top.mem || [], (e) => host.fmtBytes(e.mem), 0);
+    fillChipRows(ovRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`);
+    fillChipRows(ovRows.mem, prepMem, (e) => host.fmtBytes(e.mem));
     fillChipRows(
       ovRows.gpu,
-      s.top.gpu || [],
-      (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`,
-      0
+      prepGpu,
+      (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`
     );
 
     // Right Status Card
@@ -337,39 +483,53 @@ export function mount(root, host) {
       coreSquares[i].sq.classList.toggle("hot", v >= 90);
     }
 
-    // Populate Intel all-3 view (fits as many rows as fit the full column height)
-    fillChipRows(intelRows.cpu, s.top.cpu || [], (e) => `${e.cpu.toFixed(1)}%`, 0);
-    fillChipRows(intelRows.mem, s.top.mem || [], (e) => host.fmtBytes(e.mem), 0);
+    // Populate Intel all-3 view
+    fillChipRows(intelRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`);
+    fillChipRows(intelRows.mem, prepMem, (e) => host.fmtBytes(e.mem));
     fillChipRows(
       intelRows.gpu,
-      s.top.gpu || [],
-      (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`,
-      0
+      prepGpu,
+      (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`
     );
 
     // Populate Single-Resource view & Central Capacity Bar
-    let stackList = s.top.cpu || [];
+    let stackList = prepCpu;
     let fmtSingle = (e) => `${e.cpu.toFixed(1)}% · ${host.fmtBytes(e.mem)}`;
 
     if (activeTab === "mem") {
-      stackList = s.top.mem || [];
+      stackList = prepMem;
       fmtSingle = (e) => `${host.fmtBytes(e.mem)} · ${e.cpu.toFixed(1)}%`;
     } else if (activeTab === "gpu") {
-      stackList = s.top.gpu || [];
+      stackList = prepGpu;
       fmtSingle = (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`;
     }
 
-    const fitCount = fillChipRows(singleRows, stackList, fmtSingle, selectedIdx);
-    if (fitCount > 0 && selectedIdx >= fitCount) {
-      selectedIdx = fitCount - 1;
+    const { visibleCount: fitCount, activeIdx } = fillChipRows(singleRows, stackList, fmtSingle);
+    updateCustomScrollbar();
+
+    renderCentralStack(s, ramPct, gpuUsage, vramPct, stackList, fitCount, activeIdx);
+
+    // Update Footer Focused & Hidden Prompts
+    const focusedName = getEffectiveFocusedName();
+    if (els.pinFocusedBtn && els.hideFocusedBtn) {
+      const hasTarget = Boolean(focusedName);
+      els.pinFocusedBtn.hidden = !hasTarget;
+      els.hideFocusedBtn.hidden = !hasTarget;
+      if (hasTarget && els.pinFocusedLbl) {
+        els.pinFocusedLbl.textContent = host.isPinned(focusedName) ? "Unpin" : "Pin";
+      }
+    }
+    if (els.hiddenBtn && els.hiddenCnt) {
+      const hidLen = (host.getSettings().hiddenProcesses || []).length;
+      els.hiddenBtn.hidden = hidLen === 0;
+      els.hiddenCnt.textContent = String(hidLen);
     }
 
-    renderCentralStack(s, ramPct, gpuUsage, vramPct, stackList, fitCount);
-
-    const c0 = s.top.cpu && s.top.cpu[0] ? `${s.top.cpu[0].name} (${s.top.cpu[0].cpu.toFixed(1)}%)` : "—";
-    const m0 = s.top.mem && s.top.mem[0] ? `${s.top.mem[0].name} (${host.fmtBytes(s.top.mem[0].mem)})` : "—";
-    const g0 = s.top.gpu && s.top.gpu[0] ? `${s.top.gpu[0].name} (${(s.top.gpu[0].gpu ?? 0).toFixed(1)}%)` : "—";
-    els.descText.textContent = `Top CPU: ${c0} · Top Mem: ${m0} · Top GPU: ${g0}  |  Monitor: ${s.self.cpu.toFixed(1)}% CPU, ${host.fmtBytes(s.self.mem)}`;
+    const c0 = prepCpu[0] ? `${prepCpu[0].name} (${prepCpu[0].cpu.toFixed(1)}%)` : "—";
+    const m0 = prepMem[0] ? `${prepMem[0].name} (${host.fmtBytes(prepMem[0].mem)})` : "—";
+    const g0 = prepGpu[0] ? `${prepGpu[0].name} (${(prepGpu[0].gpu ?? 0).toFixed(1)}%)` : "—";
+    const focusInfo = host.getFocusedProcess() ? `Focused: ${host.getFocusedProcess()}  |  ` : "";
+    els.descText.textContent = `${focusInfo}Top CPU: ${c0} · Top Mem: ${m0} · Top GPU: ${g0}  |  Monitor: ${s.self.cpu.toFixed(1)}% CPU, ${host.fmtBytes(s.self.mem)}`;
 
     drawWaves(s, ramPct, gpuUsage, vramPct);
   }
@@ -378,14 +538,14 @@ export function mount(root, host) {
     return (name || "").replace(/\.exe$/i, "");
   }
 
-  function renderCentralStack(s, ramPct, gpuUsage, vramPct, stackList, fitCount) {
+  function renderCentralStack(s, ramPct, gpuUsage, vramPct, stackList, fitCount, activeIdx) {
     // Reset all slices first
     for (const item of stackSlices) {
       item.el.style.height = "0%";
       item.el.classList.remove("active-slice");
       item.lbl.textContent = "";
       delete item.el.dataset.jump;
-      delete item.el.dataset.idx;
+      delete item.el.dataset.procName;
     }
 
     let items = [];
@@ -446,7 +606,7 @@ export function mount(root, host) {
         if (els.stackPct) els.stackPct.textContent = `${s.cpu.usage.toFixed(1)}%`;
       }
 
-      const count = Math.min(fitCount || stackList.length, pageLimit);
+      const count = Math.min(fitCount || stackList.length, stackSlices.length - 1);
       const rawVals = [];
       let sumRaw = 0;
       for (let i = 0; i < count; i++) {
@@ -461,7 +621,7 @@ export function mount(root, host) {
       let usedSum = 0;
       for (let i = 0; i < count; i++) {
         const h = rawVals[i] * scale;
-        if (h < 0.35 && i !== selectedIdx) continue;
+        if (h < 0.35 && i !== activeIdx && !stackList[i]._pinned) continue;
         const effH = Math.max(1.2, h);
         usedSum += effH;
         const tier = Math.min(3, Math.floor((i / Math.max(1, count)) * 4));
@@ -469,8 +629,8 @@ export function mount(root, host) {
           cls: `c${tier}`,
           h: effH,
           lbl: effH >= 3.4 ? lblOf(stackList[i]) : "",
-          idx: i,
-          active: i === selectedIdx,
+          procName: stackList[i].name,
+          active: i === activeIdx,
         });
       }
 
@@ -507,7 +667,7 @@ export function mount(root, host) {
       slot.el.style.height = `${it.h.toFixed(2)}%`;
       slot.lbl.textContent = it.lbl || "";
       if (it.jump) slot.el.dataset.jump = it.jump;
-      if (it.idx != null) slot.el.dataset.idx = String(it.idx);
+      if (it.procName) slot.el.dataset.procName = it.procName;
       if (it.active) {
         pointerTopPct = 100 - totalStackPct + cumFromTopOfStack + it.h / 2;
       }
@@ -547,14 +707,10 @@ export function mount(root, host) {
   return {
     onSettings(settings) {
       if (!settings) return;
-      const nextOv = Math.max(1, Math.min(25, Number(settings.overviewLimit) || OVERVIEW_ROWS));
-      const nextPg = Math.max(1, Math.min(60, Number(settings.pageLimit) || MAX_ROWS));
-      if (nextOv !== overviewLimit || nextPg !== pageLimit) {
-        overviewLimit = nextOv;
-        pageLimit = nextPg;
-        rebuildAllLists();
-        if (lastSample) renderSample(lastSample);
-      }
+      overviewLimit = Math.max(1, Math.min(25, Number(settings.overviewLimit) || OVERVIEW_ROWS));
+      pageLimit = Math.max(1, Math.min(60, Number(settings.pageLimit) || MAX_ROWS));
+      rebuildAllLists();
+      if (lastSample) renderSample(lastSample);
     },
 
     onInfo(info) {

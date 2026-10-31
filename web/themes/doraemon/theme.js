@@ -167,6 +167,8 @@ export function mount(root, host) {
     }
   }
 
+  let lastSample = null;
+
   function makeList(listEl, count = 15) {
     listEl.textContent = "";
     const items = [];
@@ -180,18 +182,62 @@ export function mount(root, host) {
       cnt.className = "app-count";
       nameWrap.append(name, cnt);
 
+      const rightWrap = document.createElement("span");
+      rightWrap.className = "app-right";
       const val = document.createElement("span");
       val.className = "app-val";
+
+      const actions = document.createElement("span");
+      actions.className = "app-actions";
+      const pinBtn = document.createElement("button");
+      pinBtn.type = "button";
+      pinBtn.className = "app-act-btn";
+      pinBtn.textContent = "📌";
+      pinBtn.title = "Pin / Unpin process on top";
+      const hideBtn = document.createElement("button");
+      hideBtn.type = "button";
+      hideBtn.className = "app-act-btn";
+      hideBtn.textContent = "✕";
+      hideBtn.title = "Hide process";
+      actions.append(pinBtn, hideBtn);
+      rightWrap.append(val, actions);
 
       const bar = document.createElement("div");
       bar.className = "app-bar";
       const fill = document.createElement("i");
       bar.appendChild(fill);
 
-      li.append(nameWrap, val, bar);
+      li.append(nameWrap, rightWrap, bar);
       li.hidden = true;
+
+      let entryName = null;
+      li.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (!entryName) return;
+        host.setFocusedProcess(entryName);
+        if (lastSample) renderAllLists(lastSample);
+      });
+      pinBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (entryName) host.togglePin(entryName);
+      });
+      hideBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (entryName) host.hideProcess(entryName);
+      });
+
       listEl.appendChild(li);
-      items.push({ li, name, cnt, val, fill });
+      items.push({
+        li,
+        name,
+        cnt,
+        val,
+        fill,
+        pinBtn,
+        setEntryName(n) {
+          entryName = n;
+        },
+      });
     }
     const empty = document.createElement("li");
     empty.className = "empty";
@@ -212,41 +258,82 @@ export function mount(root, host) {
 
   function fillList(slot, entries, fmtVal, pctFn, emptyText) {
     if (!entries || entries.length === 0) {
-      for (const r of slot) r.li.hidden = true;
+      for (const r of slot) {
+        r.li.hidden = true;
+        r.li.classList.remove("focused", "is-pinned", "pinned-separator");
+      }
       slot.empty.textContent = emptyText;
       slot.empty.hidden = false;
       return;
     }
     slot.empty.hidden = true;
+    const focused = (host.getFocusedProcess() || "").toLowerCase();
+    let visibleCount = 0;
+    let lastPinnedIdx = -1;
     for (let i = 0; i < slot.length; i++) {
       const r = slot[i];
       const e = entries[i];
       if (!e) {
         r.li.hidden = true;
+        r.li.classList.remove("focused", "is-pinned", "pinned-separator");
+        r.setEntryName(null);
         continue;
       }
       r.li.hidden = false;
-      r.name.textContent = e.name;
+      r.setEntryName(e.name);
+      const pinned = Boolean(e._pinned);
+      r.name.textContent = pinned ? `📌 ${e.name}` : e.name;
       r.cnt.textContent = e.count > 1 ? `×${e.count}` : "";
       r.val.textContent = fmtVal(e);
       const pct = Math.max(0, Math.min(100, pctFn(e)));
       r.fill.style.width = `${pct.toFixed(1)}%`;
+      r.li.classList.toggle("is-pinned", pinned);
+      r.li.classList.toggle("focused", Boolean(focused) && e.name.toLowerCase() === focused);
+      r.pinBtn.classList.toggle("active", pinned);
+      if (pinned) lastPinnedIdx = i;
+      visibleCount++;
     }
+    const hasNormalAfterPinned = lastPinnedIdx >= 0 && lastPinnedIdx < visibleCount - 1;
+    for (let i = 0; i < slot.length; i++) {
+      slot[i].li.classList.toggle("pinned-separator", hasNormalAfterPinned && i === lastPinnedIdx);
+    }
+  }
 
-    const boxH = slot.listEl ? slot.listEl.clientHeight : 0;
-    if (boxH > 0 && slot.length > 0 && !slot[0].li.hidden) {
-      const firstTop = slot[0].li.offsetTop;
-      let shown = 0;
-      for (let i = 0; i < slot.length; i++) {
-        const r = slot[i];
-        if (r.li.hidden) continue;
-        const bottom = r.li.offsetTop - firstTop + r.li.offsetHeight;
-        if (shown > 0 && bottom > boxH + 1) {
-          r.li.hidden = true;
-        } else {
-          shown++;
-        }
-      }
+  function renderAllLists(s) {
+    const prepCpu = host.prepareList(s.top.cpu || [], "cpu");
+    const prepMem = host.prepareList(s.top.mem || [], "mem");
+    const prepGpu = s.top.gpu === null ? null : host.prepareList(s.top.gpu || [], "gpu");
+
+    const cpuFmt = (e) => `${e.cpu.toFixed(1)}%`;
+    const cpuPct = (e) => e.cpu;
+    fillList(lists.stCpu, prepCpu, cpuFmt, cpuPct, "All quiet on the farm");
+    fillList(
+      lists.detCpu,
+      prepCpu,
+      (e) => `${e.cpu.toFixed(1)}% · ${host.fmtBytes(e.mem)}`,
+      cpuPct,
+      "All quiet on the farm"
+    );
+
+    const memFmt = (e) => host.fmtBytes(e.mem);
+    const memPct = (e) => (ramTotal > 0 ? (e.mem / ramTotal) * 100 : 0);
+    fillList(lists.stMem, prepMem, memFmt, memPct, "Barn is empty");
+    fillList(
+      lists.detMem,
+      prepMem,
+      (e) => `${host.fmtBytes(e.mem)} · ${e.cpu.toFixed(1)}% CPU`,
+      memPct,
+      "Barn is empty"
+    );
+
+    if (prepGpu === null) {
+      fillList(lists.stGpu, [], () => "", () => 0, "GPU metrics unavailable");
+      fillList(lists.detGpu, [], () => "", () => 0, "GPU metrics unavailable");
+    } else {
+      const gpuFmt = (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`;
+      const gpuPct = (e) => e.gpu ?? 0;
+      fillList(lists.stGpu, prepGpu, gpuFmt, gpuPct, "All gadgets idle");
+      fillList(lists.detGpu, prepGpu, gpuFmt, gpuPct, "All gadgets idle");
     }
   }
 
@@ -294,8 +381,9 @@ export function mount(root, host) {
   return {
     onSettings(settings) {
       if (!settings) return;
-      const ov = Math.max(1, Math.min(25, Number(settings.overviewLimit) || 8));
-      const pg = Math.max(1, Math.min(60, Number(settings.pageLimit) || 24));
+      const pinExtra = (settings.pinnedProcesses || []).length;
+      const ov = Math.max(1, Math.min(25, Number(settings.overviewLimit) || 8)) + pinExtra;
+      const pg = Math.max(1, Math.min(60, Number(settings.pageLimit) || 24)) + pinExtra;
       lists = {
         stCpu: makeList($("st-top-cpu"), ov),
         stMem: makeList($("st-top-mem"), ov),
@@ -304,6 +392,7 @@ export function mount(root, host) {
         detMem: makeList($("det-top-mem"), pg),
         detGpu: makeList($("det-top-gpu"), pg),
       };
+      if (lastSample) renderAllLists(lastSample);
     },
 
     onInfo(info) {
@@ -334,6 +423,7 @@ export function mount(root, host) {
     },
 
     onSample(s) {
+      lastSample = s;
       const cpuRound = Math.round(s.cpu.usage);
       els.stCpuNum.textContent = cpuRound;
       els.stCpuBar.style.width = `${s.cpu.usage.toFixed(1)}%`;
@@ -395,37 +485,7 @@ export function mount(root, host) {
         dc.dfill.style.width = `${v.toFixed(1)}%`;
       }
 
-      const cpuFmt = (e) => `${e.cpu.toFixed(1)}%`;
-      const cpuPct = (e) => e.cpu;
-      fillList(lists.stCpu, s.top.cpu, cpuFmt, cpuPct, "All quiet on the farm");
-      fillList(
-        lists.detCpu,
-        s.top.cpu,
-        (e) => `${e.cpu.toFixed(1)}% · ${host.fmtBytes(e.mem)}`,
-        cpuPct,
-        "All quiet on the farm"
-      );
-
-      const memFmt = (e) => host.fmtBytes(e.mem);
-      const memPct = (e) => (ramTotal > 0 ? (e.mem / ramTotal) * 100 : 0);
-      fillList(lists.stMem, s.top.mem, memFmt, memPct, "Barn is empty");
-      fillList(
-        lists.detMem,
-        s.top.mem,
-        (e) => `${host.fmtBytes(e.mem)} · ${e.cpu.toFixed(1)}% CPU`,
-        memPct,
-        "Barn is empty"
-      );
-
-      if (s.top.gpu === null) {
-        fillList(lists.stGpu, [], () => "", () => 0, "GPU metrics unavailable");
-        fillList(lists.detGpu, [], () => "", () => 0, "GPU metrics unavailable");
-      } else {
-        const gpuFmt = (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`;
-        const gpuPct = (e) => e.gpu ?? 0;
-        fillList(lists.stGpu, s.top.gpu, gpuFmt, gpuPct, "All gadgets idle");
-        fillList(lists.detGpu, s.top.gpu, gpuFmt, gpuPct, "All gadgets idle");
-      }
+      renderAllLists(s);
 
       els.doraSelf.textContent = `${s.self.cpu.toFixed(1)}% CPU, ${host.fmtBytes(s.self.mem)}`;
       drawVisibleGraphs();

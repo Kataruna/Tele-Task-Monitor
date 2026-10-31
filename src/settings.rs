@@ -12,6 +12,8 @@ pub struct UserSettings {
     pub default_theme: String,
     pub overview_limit: usize,
     pub page_limit: usize,
+    pub pinned_processes: Vec<String>,
+    pub hidden_processes: Vec<String>,
 }
 
 impl Default for UserSettings {
@@ -21,6 +23,8 @@ impl Default for UserSettings {
             default_theme: "nier".to_string(),
             overview_limit: 8,
             page_limit: 24,
+            pinned_processes: Vec::new(),
+            hidden_processes: Vec::new(),
         }
     }
 }
@@ -41,6 +45,8 @@ impl UserSettings {
         }
         self.overview_limit = self.overview_limit.clamp(1, 25);
         self.page_limit = self.page_limit.clamp(1, 60);
+        self.pinned_processes.retain(|s| !s.trim().is_empty());
+        self.hidden_processes.retain(|s| !s.trim().is_empty());
         self
     }
 }
@@ -61,6 +67,7 @@ impl SettingsStore {
             .unwrap_or_default()
             .sanitize();
         crate::aggregate::set_top_n(settings.page_limit.max(settings.overview_limit));
+        crate::aggregate::set_process_prefs(&settings.pinned_processes, &settings.hidden_processes);
         Self {
             inner: Arc::new(RwLock::new(settings)),
             path,
@@ -97,6 +104,7 @@ impl SettingsStore {
     pub fn update(&self, next: UserSettings) -> Result<UserSettings, String> {
         let clean = next.sanitize();
         crate::aggregate::set_top_n(clean.page_limit.max(clean.overview_limit));
+        crate::aggregate::set_process_prefs(&clean.pinned_processes, &clean.hidden_processes);
         if let Some(p) = &self.path {
             let json = serde_json::to_string_pretty(&clean).map_err(|e| e.to_string())?;
             if let Err(e) = std::fs::write(p, json) {
@@ -119,12 +127,15 @@ mod tests {
             default_theme: "../bad".into(),
             overview_limit: 0,
             page_limit: 999,
+            pinned_processes: vec!["game.exe".into(), " ".into()],
+            hidden_processes: vec![],
         };
         let clean = raw.sanitize();
         assert_eq!(clean.port, 8800);
         assert_eq!(clean.default_theme, "nier");
         assert_eq!(clean.overview_limit, 1);
         assert_eq!(clean.page_limit, 60);
+        assert_eq!(clean.pinned_processes, vec!["game.exe"]);
     }
 
     #[test]
@@ -136,6 +147,8 @@ mod tests {
                 default_theme: "doraemon".into(),
                 overview_limit: 6,
                 page_limit: 30,
+                pinned_processes: vec![],
+                hidden_processes: vec![],
             })
             .unwrap();
         assert_eq!(updated.port, 8899);

@@ -132,26 +132,87 @@
 .dark-shell .top ol {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 4px 0 0;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dim) var(--line);
+}
+.dark-shell .top ol::-webkit-scrollbar {
+  width: 5px;
+}
+.dark-shell .top ol::-webkit-scrollbar-track {
+  background: var(--line);
+}
+.dark-shell .top ol::-webkit-scrollbar-thumb {
+  background: var(--dim);
+  border-radius: 3px;
 }
 .dark-shell .top li {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 2px 8px;
-  padding: 4px 0;
+  padding: 4px 6px;
   border-top: 1px solid var(--line);
   font-size: 13.5px;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.dark-shell .top li[hidden] {
+  display: none !important;
 }
 .dark-shell .top li:first-child { border-top: 0; }
+.dark-shell .top li:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.dark-shell .top li.is-pinned {
+  background: rgba(76, 194, 255, 0.09);
+}
+.dark-shell .top li.focused {
+  background: rgba(76, 194, 255, 0.16);
+  box-shadow: inset 0 0 0 1px var(--cpu);
+}
+.dark-shell .top li.pinned-separator {
+  border-bottom: 2px solid var(--dim);
+  margin-bottom: 5px;
+  padding-bottom: 6px;
+}
 .dark-shell .top .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dark-shell .top .count { color: var(--dim); font-size: 11px; margin-left: 4px; }
+.dark-shell .top .row-right { display: inline-flex; align-items: center; gap: 6px; }
 .dark-shell .top .value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.dark-shell .top .row-actions { display: inline-flex; gap: 2px; opacity: 0.3; }
+.dark-shell .top li:hover .row-actions,
+.dark-shell .top li.focused .row-actions,
+.dark-shell .top li.is-pinned .row-actions { opacity: 1; }
+@media (hover: none), (pointer: coarse) {
+  .dark-shell .top .row-actions { opacity: 0.85; }
+}
+.dark-shell .top .row-act-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.dark-shell .top .row-act-btn:hover,
+.dark-shell .top .row-act-btn.active {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--dim);
+}
 .dark-shell .top .meter { grid-column: 1 / -1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .dark-shell .top .meter i { display: block; height: 100%; }
 .dark-shell #top-cpu .meter i { background: var(--cpu); }

@@ -175,6 +175,7 @@ body {
 .settings-dialog {
   width: 100%;
   max-width: 560px;
+  max-height: calc(100dvh - 40px);
   background: #dad4bb;
   color: #3f3c34;
   border: 2px solid #4e4b42;
@@ -224,7 +225,10 @@ body {
   padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .settings-row {
@@ -232,8 +236,68 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 12px;
+  padding-bottom: 10px;
   border-bottom: 1px solid rgba(78, 75, 66, 0.22);
+}
+.settings-row.settings-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+.settings-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.settings-mini-btn {
+  background: #4e4b42;
+  color: #e6e1ca;
+  border: none;
+  padding: 3px 9px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.settings-mini-btn:hover {
+  background: #35332c;
+}
+.settings-mini-btn[hidden] {
+  display: none !important;
+}
+.settings-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+  align-items: center;
+}
+.settings-tag-empty {
+  font-size: 11.5px;
+  font-style: italic;
+  color: #7c786a;
+}
+.settings-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f4f0dc;
+  color: #2f2c25;
+  border: 1px solid #4e4b42;
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.settings-tag:hover {
+  background: #4e4b42;
+  color: #e6e1ca;
+}
+.settings-tag .tag-x {
+  font-size: 11px;
+  opacity: 0.75;
 }
 .settings-label-col {
   display: flex;

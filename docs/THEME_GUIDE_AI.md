@@ -37,10 +37,12 @@ Every theme MUST obey these 6 layout invariants:
               max(16px, env(safe-area-inset-left, 0px));
      ```
    - And your theme's background (`background-color` / `background-image`) MUST be applied to that root container so the background extends edge-to-edge behind the top padding area.
-3. **Dynamic Process Row Limits (`overviewLimit` & `pageLimit`):**
-   - Read initial limits via `host.getSettings()` (`{ overviewLimit: 8, pageLimit: 24 }`) and implement `onSettings(settings)` in the object returned by `mount(root, host)`.
-   - Overview summary lists MUST show `settings.overviewLimit` items per category (`grid-template-rows: repeat(${overviewLimit}, minmax(0, 1fr))`).
-   - Full detail pages (`CPU`, `Memory`, `GPU`) MUST show `settings.pageLimit` items (`grid-template-rows: repeat(${pageLimit}, minmax(0, 1fr))`), or dynamically hide overflowing rows so no list ever clips or scrolls.
+3. **Dynamic Process Row Limits (`overviewLimit` & `pageLimit`) + Pin / Hide / Focus / Scrollable Lists:**
+   - Read initial limits via `host.getSettings()` (`{ overviewLimit: 8, pageLimit: 24, pinnedProcesses: [], hiddenProcesses: [] }`) and implement `onSettings(settings)` in the object returned by `mount(root, host)`.
+   - Pass each list through `host.prepareList(entries, metric)` (`"cpu" | "mem" | "gpu"`), which filters out hidden processes, marks pinned processes with `e._pinned = true`, and sorts pinned processes to the top.
+   - Render a clear visual separation line (`.pinned-separator`) after the last pinned process when a list contains both pinned and normal processes.
+   - Track focused process by **process name** (`host.getFocusedProcess()` / `host.setFocusedProcess(name)`), NOT by static row index, so selection follows the process when its rank changes.
+   - Make `<ol>` process lists vertically scrollable (`overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y;`) with `flex-shrink: 0` rows so users can scroll through lists when items exceed the box height while the outer page (`html, body`) stays locked.
 4. **Navigation & Back-to-Overview Controls:**
    - If your theme has multiple tabs (`Overview` + detail tabs for `CPU`, `Memory`, `GPU`), clicking summary zones on `Overview` should drill down to that tab, and every detail tab MUST show a visible `Back to Overview` button (plus `Escape` / `Backspace` key handler).
 5. **Theme Dropdown & Settings Triggers:**
@@ -83,6 +85,14 @@ interface HostApi {
     themes: Array<{ id: string; name: string; bgColor: string }>;
   };
   getSettings(): UserSettings;
+  isPinned(name: string): boolean;
+  isHidden(name: string): boolean;
+  togglePin(name: string): void;
+  hideProcess(name: string): void;
+  unhideProcess(name: string): void;
+  prepareList(entries: AppEntry[], metric?: "cpu" | "mem" | "gpu"): Array<AppEntry & { _pinned: boolean }>;
+  getFocusedProcess(): string | null;
+  setFocusedProcess(name: string | null): void;
   openThemeMenu(anchorEl: HTMLElement, ev?: MouseEvent): void;
   openSettings(ev?: MouseEvent): void;
   switchTheme(nextId?: string): void;
@@ -92,10 +102,12 @@ interface HostApi {
 ### Data Schemas
 ```ts
 interface UserSettings {
-  port: number;          // default 8800
-  defaultTheme: string;  // "nier" | "doraemon" | "default" | ...
-  overviewLimit: number; // default 8 (1..25)
-  pageLimit: number;     // default 24 (1..60)
+  port: number;              // default 8800
+  defaultTheme: string;      // "nier" | "doraemon" | "default" | ...
+  overviewLimit: number;     // default 8 (1..25)
+  pageLimit: number;         // default 24 (1..60)
+  pinnedProcesses: string[]; // pinned to top of lists above separator
+  hiddenProcesses: string[]; // excluded from lists
 }
 
 interface InfoPayload {
