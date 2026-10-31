@@ -210,31 +210,16 @@ export function mount(root, host) {
 
     renderRows(rows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`, (e) => e.cpu, "—");
     renderRows(rows.mem, prepMem, (e) => host.fmtBytes(e.mem), (e) => (ramTotal > 0 ? (e.mem / ramTotal) * 100 : 0), "—");
-    renderRows(
-      rows.gpu,
-      prepGpu,
-      isVram
-        ? (e) => `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%`
-        : (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`,
-      (e) => (isVram ? (s.gpu && s.gpu.vramTotal > 0 ? ((e.vram ?? 0) / s.gpu.vramTotal) * 100 : 0) : (e.gpu ?? 0)),
-      "—"
-    );
-  }
-    renderRows(
-      rows.mem,
-      prepMem,
-      (e) => host.fmtBytes(e.mem),
-      (e) => (ramTotal > 0 ? (e.mem / ramTotal) * 100 : 0),
-      "—"
-    );
     if (prepGpu === null) {
       renderRows(rows.gpu, [], () => "", () => 0, "GPU metrics unavailable");
     } else {
       renderRows(
         rows.gpu,
         prepGpu,
-        (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`,
-        (e) => e.gpu ?? 0,
+        isVram
+          ? (e) => `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%`
+          : (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`,
+        (e) => (isVram ? (s.gpu && s.gpu.vramTotal > 0 ? ((e.vram ?? 0) / s.gpu.vramTotal) * 100 : 0) : (e.gpu ?? 0)),
         "All apps idle"
       );
     }

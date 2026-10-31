@@ -567,13 +567,6 @@ function renderSettingsProcessTags() {
     }
   }
 }
-          renderSettingsProcessTags();
-        });
-        setHiddenListEl.appendChild(btn);
-      }
-    }
-  }
-}
 
 if (setClearPinnedBtn) {
   setClearPinnedBtn.addEventListener("click", () => {
