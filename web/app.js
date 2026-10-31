@@ -715,6 +715,9 @@ if (settingsResetBtn) {
 if (settingsForm) {
   settingsForm.addEventListener("submit", async (ev) => {
     ev.preventDefault();
+    // Let any background save (sort toggle, pin, hide) land first: its older response must not
+    // overwrite what this form is about to save, and the payload below reads the latest values.
+    if (persistInFlight) await persistInFlight;
     const prevPort = state.settings.port;
     const payload = {
       port: Math.max(1024, Math.min(65535, Number(setPortEl.value) || 8800)),

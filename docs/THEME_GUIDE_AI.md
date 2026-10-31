@@ -140,8 +140,9 @@ interface AppEntry {
   mem: number;         // private working set in bytes
   gpu: number | null;  // 0..100 (1 decimal) or null
   vram: number | null; // dedicated VRAM in bytes (summed over the app's processes) or null.
-                       // Never above the adapter's measured usage (SamplePayload.gpu.vramUsed),
-                       // so one app can never look bigger than the whole GPU.
+                       // Capped at the adapter's measured usage (SamplePayload.gpu.vramUsed) when
+                       // that is > 0, else at its capacity, so one app cannot look bigger than
+                       // the whole GPU.
 }
 
 interface SamplePayload {
