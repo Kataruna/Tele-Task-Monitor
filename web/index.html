@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Task Monitor">
+  <meta id="meta-theme-color" name="theme-color" content="#cdc8b0">
+  <link rel="manifest" href="manifest.webmanifest">
+  <title>Task Monitor</title>
+  <link rel="stylesheet" href="style.css">
+  <link id="theme-css" rel="stylesheet" href="">
+</head>
+<body>
+  <div id="safe-top-plate" class="host-safe-top" aria-hidden="true"></div>
+  <div id="banner" class="host-banner" hidden>Reconnecting…</div>
+  <main id="theme-root" class="theme-root"></main>
+  <div id="safe-bottom-plate" class="host-safe-bottom" aria-hidden="true"></div>
+  <div id="theme-dropdown" class="host-theme-dropdown" hidden></div>
+
+  <!-- Settings Page / Modal -->
+  <div id="settings-overlay" class="settings-overlay" hidden>
+    <div class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="settings-header">
+        <div class="settings-title-wrap">
+          <span class="settings-badge">⚙</span>
+          <h2 id="settings-title">SYSTEM SETTINGS</h2>
+        </div>
+        <button type="button" id="settings-close-btn" class="settings-close-btn" title="Close Settings">✕ Close</button>
+      </div>
+
+      <form id="settings-form" class="settings-body">
+        <div class="settings-row">
+          <div class="settings-label-col">
+            <label for="set-default-theme">Default Theme</label>
+            <span class="settings-hint">Startup theme &amp; active interface layout</span>
+          </div>
+          <div class="settings-input-col">
+            <select id="set-default-theme" class="settings-select">
+              <option value="nier">Automata</option>
+              <option value="doraemon">Village</option>
+              <option value="default">Classic Dark</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label-col">
+            <label for="set-overview-limit">Overview Items Limit</label>
+            <span class="settings-hint">Processes shown per category on Overview (1–25)</span>
+          </div>
+          <div class="settings-input-col settings-stepper">
+            <button type="button" class="step-btn" data-step-target="set-overview-limit" data-step="-1">−</button>
+            <input type="number" id="set-overview-limit" class="settings-input" min="1" max="25" step="1" value="8" required>
+            <button type="button" class="step-btn" data-step-target="set-overview-limit" data-step="1">+</button>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label-col">
+            <label for="set-page-limit">Detail Page Items Limit</label>
+            <span class="settings-hint">Processes shown on CPU / Memory / GPU pages (1–60)</span>
+          </div>
+          <div class="settings-input-col settings-stepper">
+            <button type="button" class="step-btn" data-step-target="set-page-limit" data-step="-1">−</button>
+            <input type="number" id="set-page-limit" class="settings-input" min="1" max="60" step="1" value="24" required>
+            <button type="button" class="step-btn" data-step-target="set-page-limit" data-step="1">+</button>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label-col">
+            <label for="set-port">Server Port</label>
+            <span class="settings-hint">TCP port for PC &amp; iPad connections (1024–65535)</span>
+          </div>
+          <div class="settings-input-col">
+            <input type="number" id="set-port" class="settings-input port-input" min="1024" max="65535" step="1" value="8800" required>
+          </div>
+        </div>
+
+        <div id="settings-status" class="settings-status" hidden></div>
+
+        <div class="settings-footer">
+          <button type="button" id="settings-reset-btn" class="settings-btn secondary">Reset Defaults</button>
+          <div class="settings-footer-right">
+            <button type="button" id="settings-cancel-btn" class="settings-btn secondary">Cancel</button>
+            <button type="submit" id="settings-save-btn" class="settings-btn primary">Save &amp; Apply</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

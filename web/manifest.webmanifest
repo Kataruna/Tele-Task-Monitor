@@ -1,0 +1,17 @@
+{
+  "name": "Tele-Task-Monitor",
+  "short_name": "Task Monitor",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#cdc8b0",
+  "theme_color": "#cdc8b0",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='36' fill='%234e4b42'/%3E%3Crect x='14' y='14' width='152' height='152' rx='26' fill='%23cdc8b0'/%3E%3Cpath d='M32 115 L62 115 L78 62 L102 126 L118 88 L148 88' fill='none' stroke='%234e4b42' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E",
+      "sizes": "180x180",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "defaultTheme": "nier",
+  "themes": [
+    {
+      "id": "nier",
+      "name": "Automata",
+      "bgColor": "#cdc8b0"
+    },
+    {
+      "id": "doraemon",
+      "name": "Village",
+      "bgColor": "#5a7d3e"
+    },
+    {
+      "id": "default",
+      "name": "Classic Dark",
+      "bgColor": "#0b0d12"
+    }
+  ]
+}
