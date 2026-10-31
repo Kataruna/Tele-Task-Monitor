@@ -73,7 +73,7 @@ impl Sampler {
             self.tracker.update(&procs, Duration::ZERO, self.logical_cores);
         }
         if let Some(c) = self.gpu_counters.as_mut() {
-            let _ = c.read();
+            c.collect(); // baseline only: formatting thousands of instances here would be thrown away
         }
         self.last = Instant::now();
     }

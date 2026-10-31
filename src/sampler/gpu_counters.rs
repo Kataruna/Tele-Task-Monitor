@@ -57,14 +57,122 @@ fn matches_luid(instance: &str, luid_filter: Option<&str>) -> bool {
         && rest.as_bytes().get(tag.len()).is_none_or(|&b| b == b'_')
 }
 
-/// Reduce raw counter arrays (instance name, value) into a reading.
+/// Decodes PDH instance names (UTF-16) into a reused buffer. The names are ASCII
+/// (`pid_1234_luid_0x…_eng_0_engtype_3D`), so the common path allocates nothing; a name with any
+/// other character takes the exact lossy path.
+#[derive(Default)]
+pub struct NameBuf {
+    ascii: Vec<u8>,
+    other: String,
+}
+
+impl NameBuf {
+    pub fn decode(&mut self, wide: &[u16]) -> &str {
+        self.ascii.clear();
+        for &u in wide {
+            if u >= 0x80 {
+                self.other = String::from_utf16_lossy(wide);
+                return &self.other;
+            }
+            self.ascii.push(u as u8);
+        }
+        std::str::from_utf8(&self.ascii).unwrap_or("")
+    }
+}
+
+/// Streaming reduction of the three PDH counters into a [`GpuReading`]. Feed it one instance at a
+/// time (borrowed name, no per-instance allocation), then call [`Reducer::finish`].
 /// - `engine`: `\GPU Engine(*)\Utilization Percentage`
-/// - `proc_mem`: `\GPU Process Memory(*)\Dedicated Usage`
-/// - `adapter_mem`: `\GPU Adapter Memory(*)\Dedicated Usage`
+/// - `process_memory`: `\GPU Process Memory(*)\Dedicated Usage`
+/// - `adapter_memory`: `\GPU Adapter Memory(*)\Dedicated Usage`
+///
+/// Instances reporting 0 add nothing to a sum or a maximum, so they are ignored without even
+/// parsing their name. Most engine instances are idle, so this is the bulk of the saving.
+///
 /// - `luid_filter`: optional `"luid_0xHHHHHHHH_0xLLLLLLLL"` of the primary hardware GPU so
 ///   virtual display drivers and software renderers (WARP) do not pollute GPU metrics.
 /// - `vram_cap`: that GPU's dedicated memory capacity in bytes, `0` if unknown. Adapter usage
 ///   is held at or below it.
+pub struct Reducer<'a> {
+    luid_filter: Option<&'a str>,
+    vram_cap: u64,
+    per_engine: HashMap<String, f64>,
+    per_pid: HashMap<u32, ProcGpu>,
+    vram_used: u64,
+    key: String,
+}
+
+impl<'a> Reducer<'a> {
+    /// `pid_hint`: expected number of PIDs (last tick's count) to size the map once.
+    pub fn new(luid_filter: Option<&'a str>, vram_cap: u64, pid_hint: usize) -> Self {
+        Self {
+            luid_filter,
+            vram_cap,
+            per_engine: HashMap::new(),
+            per_pid: HashMap::with_capacity(pid_hint),
+            vram_used: 0,
+            key: String::new(),
+        }
+    }
+
+    pub fn engine(&mut self, name: &str, value: f64) {
+        let v = value.max(0.0);
+        if v == 0.0 || !matches_luid(name, self.luid_filter) {
+            return;
+        }
+        if let Some(engine) = engine_key(name) {
+            // Case-insensitive key built in a reused buffer; only a new engine allocates.
+            self.key.clear();
+            self.key.extend(engine.chars().map(|c| c.to_ascii_lowercase()));
+            match self.per_engine.get_mut(self.key.as_str()) {
+                Some(sum) => *sum += v,
+                None => {
+                    self.per_engine.insert(self.key.clone(), v);
+                }
+            }
+        }
+        if let Some(pid) = parse_pid(name) {
+            let e = self.per_pid.entry(pid).or_default();
+            e.gpu = e.gpu.max(v as f32);
+        }
+    }
+
+    pub fn process_memory(&mut self, name: &str, value: f64) {
+        let bytes = value.max(0.0) as u64;
+        if bytes == 0 || !matches_luid(name, self.luid_filter) {
+            return;
+        }
+        if let Some(pid) = parse_pid(name) {
+            let e = self.per_pid.entry(pid).or_default();
+            e.vram = e.vram.saturating_add(bytes);
+        }
+    }
+
+    pub fn adapter_memory(&mut self, name: &str, value: f64) {
+        let bytes = value.max(0.0) as u64;
+        if bytes == 0 || !matches_luid(name, self.luid_filter) {
+            return;
+        }
+        self.vram_used = self.vram_used.saturating_add(bytes);
+    }
+
+    pub fn finish(self) -> GpuReading {
+        let Self { vram_cap, mut per_pid, per_engine, vram_used, .. } = self;
+        for g in per_pid.values_mut() {
+            g.gpu = round1(g.gpu.clamp(0.0, 100.0));
+        }
+        let usage = per_engine.values().copied().fold(0.0f64, f64::max).clamp(0.0, 100.0) as f32;
+        let vram_used = if vram_cap > 0 { vram_used.min(vram_cap) } else { vram_used };
+        // `vram_used == 0` means the adapter counter returned nothing this tick (a live desktop
+        // always holds some VRAM), so it cannot serve as a bound; fall back to the capacity.
+        let app_vram_cap = if vram_used > 0 { Some(vram_used) } else { (vram_cap > 0).then_some(vram_cap) };
+        GpuReading { usage: round1(usage), vram_used, per_pid, app_vram_cap }
+    }
+}
+
+/// Reduce whole counter arrays (instance name, value) into a reading; the slice form of
+/// [`Reducer`], kept for tests.
+#[cfg(test)]
 pub fn reduce(
     engine: &[(String, f64)],
     proc_mem: &[(String, f64)],
@@ -72,43 +180,17 @@ pub fn reduce(
     luid_filter: Option<&str>,
     vram_cap: u64,
 ) -> GpuReading {
-    let mut per_engine: HashMap<String, f64> = HashMap::new();
-    let mut per_pid: HashMap<u32, ProcGpu> = HashMap::new();
-    for (name, value) in engine {
-        if !matches_luid(name, luid_filter) {
-            continue;
-        }
-        let v = value.max(0.0);
-        if let Some(key) = engine_key(name) {
-            *per_engine.entry(key.to_ascii_lowercase()).or_default() += v;
-        }
-        if let Some(pid) = parse_pid(name) {
-            let e = per_pid.entry(pid).or_default();
-            e.gpu = e.gpu.max(v as f32);
-        }
+    let mut r = Reducer::new(luid_filter, vram_cap, 0);
+    for (name, v) in engine {
+        r.engine(name, *v);
     }
-    for (name, value) in proc_mem {
-        if !matches_luid(name, luid_filter) {
-            continue;
-        }
-        if let Some(pid) = parse_pid(name) {
-            let e = per_pid.entry(pid).or_default();
-            e.vram = e.vram.saturating_add(value.max(0.0) as u64);
-        }
+    for (name, v) in proc_mem {
+        r.process_memory(name, *v);
     }
-    for g in per_pid.values_mut() {
-        g.gpu = round1(g.gpu.clamp(0.0, 100.0));
+    for (name, v) in adapter_mem {
+        r.adapter_memory(name, *v);
     }
-    let usage = per_engine.values().copied().fold(0.0f64, f64::max).clamp(0.0, 100.0) as f32;
-    let vram_used = adapter_mem
-        .iter()
-        .filter(|(name, _)| matches_luid(name, luid_filter))
-        .fold(0u64, |acc, (_, v)| acc.saturating_add(v.max(0.0) as u64));
-    let vram_used = if vram_cap > 0 { vram_used.min(vram_cap) } else { vram_used };
-    // `vram_used == 0` means the adapter counter returned nothing this tick (a live desktop
-    // always holds some VRAM), so it cannot serve as a bound; fall back to the capacity.
-    let app_vram_cap = if vram_used > 0 { Some(vram_used) } else { (vram_cap > 0).then_some(vram_cap) };
-    GpuReading { usage: round1(usage), vram_used, per_pid, app_vram_cap }
+    r.finish()
 }
 
 /// Owns the PDH query. Not `Send`: create and use it on the sampler thread only.
@@ -119,7 +201,13 @@ pub struct GpuCounters {
     adapter_mem: PDH_HCOUNTER,
     luid_filter: Option<String>,
     vram_cap: u64,
+    /// PDH output buffer, reused by all three counters (each is consumed before the next call).
     buf: Vec<u64>,
+    /// Largest `buf` length seen: `release` frees the memory, this pre-sizes it again on wake.
+    buf_hint: usize,
+    /// PIDs seen last tick, to size the per-PID map once.
+    pid_hint: usize,
+    names: NameBuf,
 }
 
 impl GpuCounters {
@@ -140,6 +228,9 @@ impl GpuCounters {
             luid_filter: adapter.map(|a| a.luid_tag.clone()),
             vram_cap: adapter.map_or(0, |a| a.vram_cap),
             buf: Vec::new(),
+            buf_hint: 0,
+            pid_hint: 0,
+            names: NameBuf::default(),
         };
         for (path, slot) in [
             (w!("\\GPU Engine(*)\\Utilization Percentage"), &mut me.engine),
@@ -158,6 +249,19 @@ impl GpuCounters {
         Ok(me)
     }
 
+    /// Take a baseline sample without formatting anything. Formatting thousands of instances is
+    /// the expensive part of a read, and a baseline only needs the raw collection.
+    pub fn collect(&mut self) {
+        // SAFETY: query is open.
+        unsafe { PdhCollectQueryData(self.query) };
+    }
+
+    /// Free the scratch memory (the next `read` re-allocates it at its previous size).
+    pub fn release(&mut self) {
+        self.buf = Vec::new();
+        self.pid_hint = 0;
+    }
+
     /// Collect a new sample. Utilisation covers the time since the previous call.
     pub fn read(&mut self) -> Result<GpuReading, String> {
         // SAFETY: query is open.
@@ -165,47 +269,68 @@ impl GpuCounters {
         if s != 0 {
             return Err(format!("PdhCollectQueryData failed: {s:#x}"));
         }
-        let engine = self.array(self.engine, false);
-        let proc_mem = self.array(self.proc_mem, true);
-        let adapter_mem = self.array(self.adapter_mem, true);
-        Ok(reduce(&engine, &proc_mem, &adapter_mem, self.luid_filter.as_deref(), self.vram_cap))
+        if self.buf.is_empty() {
+            self.buf.resize(self.buf_hint, 0);
+        }
+        let mut acc = Reducer::new(self.luid_filter.as_deref(), self.vram_cap, self.pid_hint);
+        let names = &mut self.names;
+        // Zero-valued instances (idle engines are the large majority) are skipped before the
+        // name is decoded.
+        Self::visit(&mut self.buf, self.engine, false, |wide, v| {
+            if v > 0.0 {
+                acc.engine(names.decode(wide), v);
+            }
+        });
+        Self::visit(&mut self.buf, self.proc_mem, true, |wide, v| {
+            if v > 0.0 {
+                acc.process_memory(names.decode(wide), v);
+            }
+        });
+        Self::visit(&mut self.buf, self.adapter_mem, true, |wide, v| {
+            if v > 0.0 {
+                acc.adapter_memory(names.decode(wide), v);
+            }
+        });
+        self.buf_hint = self.buf_hint.max(self.buf.len());
+        let reading = acc.finish();
+        self.pid_hint = reading.per_pid.len();
+        Ok(reading)
     }
 
-    /// Read a wildcard counter as (instance name, value). Any error yields an empty list
-    /// (e.g. "no data yet" right after start), never a failure of the whole tick.
-    fn array(&mut self, counter: PDH_HCOUNTER, large: bool) -> Vec<(String, f64)> {
+    /// Format a wildcard counter and call `f(instance name as UTF-16, value)` for every valid
+    /// instance. Any error visits nothing (e.g. "no data yet" right after start), never a failure
+    /// of the whole tick.
+    fn visit(buf: &mut Vec<u64>, counter: PDH_HCOUNTER, large: bool, mut f: impl FnMut(&[u16], f64)) {
         let format = if large { PDH_FMT_LARGE } else { PDH_FMT_DOUBLE };
         loop {
-            let mut bytes = (self.buf.len() * 8) as u32;
+            let mut bytes = (buf.len() * 8) as u32;
             let mut count = 0u32;
-            let items = if self.buf.is_empty() { None } else { Some(self.buf.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W) };
+            let items = if buf.is_empty() { None } else { Some(buf.as_mut_ptr() as *mut PDH_FMT_COUNTERVALUE_ITEM_W) };
             // SAFETY: buffer (if any) is `bytes` long and 8-byte aligned.
             let s = unsafe { PdhGetFormattedCounterArrayW(counter, format, &mut bytes, &mut count, items) };
             if s == PDH_MORE_DATA {
-                let next_len = (bytes as usize / 8 + 1024).max(self.buf.len().saturating_mul(2).max(1024));
-                self.buf.resize(next_len, 0);
+                // Exactly what PDH asked for plus 12.5% for processes that appear meanwhile.
+                // (Doubling and zero-filling would commit memory that is never used.)
+                let needed = bytes as usize / 8;
+                buf.resize((needed + needed / 8 + 1024).max(buf.len() + 1024), 0);
                 continue;
             }
-            if s != 0 || count == 0 || self.buf.is_empty() {
-                return Vec::new();
+            if s != 0 || count == 0 || buf.is_empty() {
+                return;
             }
             // SAFETY: PDH wrote `count` items at the start of buf; names point into buf.
-            let items = unsafe { std::slice::from_raw_parts(self.buf.as_ptr() as *const PDH_FMT_COUNTERVALUE_ITEM_W, count as usize) };
-            return items
-                .iter()
-                .filter(|it| it.FmtValue.CStatus <= 1) // PDH_CSTATUS_VALID_DATA or NEW_DATA
-                .map(|it| {
-                    // SAFETY: union member matches the requested format.
-                    let v = unsafe { if large { it.FmtValue.Anonymous.largeValue as f64 } else { it.FmtValue.Anonymous.doubleValue } };
-                    let name = if it.szName.is_null() {
-                        String::new()
-                    } else {
-                        // SAFETY: szName is a non-null NUL-terminated string inside buf.
-                        unsafe { it.szName.to_string() }.unwrap_or_default()
-                    };
-                    (name, v)
-                })
-                .collect();
+            let items = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const PDH_FMT_COUNTERVALUE_ITEM_W, count as usize) };
+            for it in items {
+                if it.FmtValue.CStatus > 1 {
+                    continue; // only PDH_CSTATUS_VALID_DATA (0) or NEW_DATA (1)
+                }
+                // SAFETY: union member matches the requested format.
+                let v = unsafe { if large { it.FmtValue.Anonymous.largeValue as f64 } else { it.FmtValue.Anonymous.doubleValue } };
+                // SAFETY: szName, when non-null, is a NUL-terminated string inside buf.
+                let name: &[u16] = if it.szName.is_null() { &[] } else { unsafe { it.szName.as_wide() } };
+                f(name, v);
+            }
+            return;
         }
     }
 }
@@ -348,6 +473,140 @@ mod tests {
         let r = reduce(&[], &mem, &adapters, None, 0);
         assert_eq!(r.vram_used, u64::MAX);
         assert_eq!(r.per_pid[&1].vram, u64::MAX);
+    }
+
+    /// The original, allocation-heavy reduction, kept as the reference the streaming `Reducer`
+    /// must agree with.
+    fn reduce_reference(
+        engine: &[(String, f64)],
+        proc_mem: &[(String, f64)],
+        adapter_mem: &[(String, f64)],
+        luid_filter: Option<&str>,
+        vram_cap: u64,
+    ) -> GpuReading {
+        let mut per_engine: HashMap<String, f64> = HashMap::new();
+        let mut per_pid: HashMap<u32, ProcGpu> = HashMap::new();
+        for (name, value) in engine {
+            if !matches_luid(name, luid_filter) {
+                continue;
+            }
+            let v = value.max(0.0);
+            if let Some(key) = engine_key(name) {
+                *per_engine.entry(key.to_ascii_lowercase()).or_default() += v;
+            }
+            if let Some(pid) = parse_pid(name) {
+                let e = per_pid.entry(pid).or_default();
+                e.gpu = e.gpu.max(v as f32);
+            }
+        }
+        for (name, value) in proc_mem {
+            if !matches_luid(name, luid_filter) {
+                continue;
+            }
+            if let Some(pid) = parse_pid(name) {
+                let e = per_pid.entry(pid).or_default();
+                e.vram = e.vram.saturating_add(value.max(0.0) as u64);
+            }
+        }
+        for g in per_pid.values_mut() {
+            g.gpu = round1(g.gpu.clamp(0.0, 100.0));
+        }
+        let usage = per_engine.values().copied().fold(0.0f64, f64::max).clamp(0.0, 100.0) as f32;
+        let vram_used = adapter_mem
+            .iter()
+            .filter(|(name, _)| matches_luid(name, luid_filter))
+            .fold(0u64, |acc, (_, v)| acc.saturating_add(v.max(0.0) as u64));
+        let vram_used = if vram_cap > 0 { vram_used.min(vram_cap) } else { vram_used };
+        let app_vram_cap = if vram_used > 0 { Some(vram_used) } else { (vram_cap > 0).then_some(vram_cap) };
+        GpuReading { usage: round1(usage), vram_used, per_pid, app_vram_cap }
+    }
+
+    /// Entries that only record "this PID has an idle engine" carry no information
+    /// (`group_by_name` treats a missing PID as all zeros), and the streaming reducer never makes them.
+    fn without_all_zero_pids(mut r: GpuReading) -> GpuReading {
+        r.per_pid.retain(|_, p| *p != ProcGpu::default());
+        r
+    }
+
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 >> 33
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+    }
+
+    #[test]
+    fn streaming_reducer_matches_the_reference_on_random_counters() {
+        let luids = ["luid_0x00000000_0x4B7D703F", "luid_0x00000000_0x4b7d703f", "luid_0x00000000_0x000116C1", "luid_0x00000001_0x4B7D703F"];
+        let types = ["3D", "Copy", "VideoDecode", "3d", "Compute_0"];
+        for seed in 0..40u64 {
+            let mut r = Lcg(seed * 7919 + 1);
+            let mut engine = Vec::new();
+            let mut proc_mem = Vec::new();
+            let mut adapter = Vec::new();
+            for _ in 0..r.below(400) {
+                let pid = r.below(60);
+                let luid = luids[r.below(4) as usize];
+                let name = match r.below(12) {
+                    0 => "garbage".to_string(),
+                    1 => format!("pid_x{pid}_{luid}_phys_0_eng_1_engtype_3D"),
+                    _ => format!("pid_{pid}_{luid}_phys_{}_eng_{}_engtype_{}", r.below(2), r.below(8), types[r.below(5) as usize]),
+                };
+                let v = match r.below(6) {
+                    0 | 1 | 2 => 0.0,
+                    3 => -(r.below(50) as f64),
+                    4 => r.below(1200) as f64 / 10.0,
+                    _ => r.below(100) as f64,
+                };
+                engine.push((name, v));
+            }
+            for _ in 0..r.below(120) {
+                let pid = r.below(60);
+                let luid = luids[r.below(4) as usize];
+                let v = if r.below(4) == 0 { 0.0 } else { (r.below(5000) * 1_000_000) as f64 };
+                proc_mem.push((format!("pid_{pid}_{luid}_phys_{}", r.below(2)), v));
+            }
+            for _ in 0..r.below(5) {
+                let luid = luids[r.below(4) as usize];
+                adapter.push((format!("{luid}_phys_{}", r.below(2)), (r.below(20_000) * 1_000_000) as f64));
+            }
+            for filter in [None, Some("luid_0x00000000_0x4b7d703f")] {
+                for cap in [0u64, 8_000_000_000, 40_000_000_000] {
+                    let want = without_all_zero_pids(reduce_reference(&engine, &proc_mem, &adapter, filter, cap));
+                    let got = reduce(&engine, &proc_mem, &adapter, filter, cap);
+                    assert_eq!(want, got, "seed {seed}, filter {filter:?}, cap {cap}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn idle_instances_are_ignored_without_creating_entries() {
+        let engine = vec![s("pid_1_luid_0x0_0xA_phys_0_eng_0_engtype_3D", 0.0), s("pid_2_luid_0x0_0xA_phys_0_eng_0_engtype_3D", 12.5)];
+        let r = reduce(&engine, &[], &[], None, 0);
+        assert_eq!(r.usage, 12.5);
+        assert!(!r.per_pid.contains_key(&1), "an idle engine says nothing about its PID");
+        assert_eq!(r.per_pid[&2].gpu, 12.5);
+    }
+
+    #[test]
+    fn name_buffer_decodes_ascii_and_matches_lossy_decoding_otherwise() {
+        let mut nb = NameBuf::default();
+        let w = |t: &str| t.encode_utf16().collect::<Vec<u16>>();
+        assert_eq!(nb.decode(&w("pid_1_luid_0x0_0xA_phys_0_eng_0_engtype_3D")), "pid_1_luid_0x0_0xA_phys_0_eng_0_engtype_3D");
+        // a shorter name after a longer one must not keep the longer one's tail
+        assert_eq!(nb.decode(&w("pid_2")), "pid_2");
+        assert_eq!(nb.decode(&[]), "");
+        // non-ASCII, a surrogate pair, and a lone surrogate behave exactly like the lossy decoder
+        for wide in [w("naïve_é.exe"), w("a😀b"), vec![b'a' as u16, 0xD800, b'b' as u16]] {
+            assert_eq!(nb.decode(&wide), String::from_utf16_lossy(&wide));
+        }
+        // and the ASCII path is usable again afterwards
+        assert_eq!(nb.decode(&w("ok")), "ok");
     }
 
     #[test]
