@@ -460,6 +460,12 @@ body {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .proc-context-menu {
+    animation: none;
+  }
+}
+
 .proc-menu-header {
   display: flex;
   align-items: center;

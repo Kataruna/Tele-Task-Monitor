@@ -53,7 +53,15 @@
 }
 .dora-weather .sun-spin {
   transform-origin: 34px 29px;
-  animation: doraSunPulse 8s ease-in-out infinite;
+  /* The pulse is slow and tiny (about 0.5 degree per step), so 6 updates a second look the same
+     as 60. steps() lets the browser, and an iPad's display, idle between updates instead of
+     drawing a new frame every refresh for as long as the theme is open. */
+  animation: doraSunPulse 8s steps(24) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dora-weather .sun-spin {
+    animation: none;
+  }
 }
 @keyframes doraSunPulse {
   0%, 100% { transform: scale(1) rotate(0deg); }
