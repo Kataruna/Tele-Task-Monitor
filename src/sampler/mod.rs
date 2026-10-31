@@ -95,7 +95,16 @@ impl Sampler {
             }
         };
 
-        let gpu_reading = self.gpu_counters.as_mut().and_then(|c| c.read().ok());
+        let vram_total = self.gpu_adapter.as_ref().map(|a| a.vram_total).unwrap_or(0);
+        let mut gpu_reading = self.gpu_counters.as_mut().and_then(|c| c.read().ok());
+        if let Some(r) = &mut gpu_reading {
+            if vram_total > 0 {
+                r.vram_used = r.vram_used.min(vram_total);
+                for p in r.per_pid.values_mut() {
+                    p.vram = p.vram.min(vram_total);
+                }
+            }
+        }
         let apps = group_by_name(&rows, gpu_reading.as_ref().map(|r| &r.per_pid));
         let top = build_top(&apps, crate::aggregate::current_top_n(), gpu_reading.is_some());
 
@@ -104,7 +113,7 @@ impl Sampler {
             GpuSample {
                 usage: r.usage,
                 vram_used: r.vram_used,
-                vram_total: self.gpu_adapter.as_ref().map(|a| a.vram_total).unwrap_or(0),
+                vram_total,
                 temp_c,
                 power_pct,
             }
