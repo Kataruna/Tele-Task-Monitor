@@ -93,21 +93,33 @@ pub fn round1(v: f32) -> f32 {
 /// per-process counters can be inflated, or count shared allocations once per process, so a
 /// multi-process app (browsers, WebView2 hosts) can add up to more than the adapter holds.
 pub fn group_by_name(rows: &[ProcRow], gpu: Option<&HashMap<u32, ProcGpu>>, vram_cap: Option<u64>) -> Vec<AppEntry> {
-    let mut map: HashMap<String, AppEntry> = HashMap::new();
+    // key (lowercase name) -> index into `out`; the key is built in a reused buffer and only
+    // allocated for the first process of each app.
+    let mut index: HashMap<String, usize> = HashMap::new();
+    let mut out: Vec<AppEntry> = Vec::new();
+    let mut key = String::new();
     for r in rows {
         if r.pid == 0 || r.name.is_empty() {
             continue;
         }
-        let key = r.name.to_lowercase();
+        lowercase_into(&mut key, &r.name);
         let g = gpu.map(|m| m.get(&r.pid).copied().unwrap_or_default());
-        let entry = map.entry(key).or_insert_with(|| AppEntry {
-            name: r.name.clone(),
-            count: 0,
-            cpu: 0.0,
-            mem: 0,
-            gpu: g.map(|_| 0.0),
-            vram: g.map(|_| 0),
-        });
+        let i = match index.get(key.as_str()) {
+            Some(&i) => i,
+            None => {
+                out.push(AppEntry {
+                    name: r.name.clone(),
+                    count: 0,
+                    cpu: 0.0,
+                    mem: 0,
+                    gpu: g.map(|_| 0.0),
+                    vram: g.map(|_| 0),
+                });
+                index.insert(key.clone(), out.len() - 1);
+                out.len() - 1
+            }
+        };
+        let entry = &mut out[i];
         entry.count += 1;
         entry.cpu += r.cpu;
         entry.mem += r.mem;
@@ -117,7 +129,6 @@ pub fn group_by_name(rows: &[ProcRow], gpu: Option<&HashMap<u32, ProcGpu>>, vram
             *v = v.saturating_add(pg.vram);
         }
     }
-    let mut out: Vec<AppEntry> = map.into_values().collect();
     for e in &mut out {
         e.cpu = round1(e.cpu.clamp(0.0, 100.0));
         if let Some(g) = &mut e.gpu {
@@ -130,6 +141,19 @@ pub fn group_by_name(rows: &[ProcRow], gpu: Option<&HashMap<u32, ProcGpu>>, vram
     out
 }
 
+/// `str::to_lowercase` into a reused buffer (identical result; ASCII, which process names
+/// virtually always are, takes the allocation-free path).
+fn lowercase_into(buf: &mut String, s: &str) {
+    buf.clear();
+    if s.is_ascii() {
+        buf.extend(s.chars().map(|c| c.to_ascii_lowercase()));
+    } else {
+        buf.push_str(&s.to_lowercase());
+    }
+}
+
+/// Order two apps by lowercase name (the final tie-break of every list).
+#[cfg(test)]
 fn by_name(a: &AppEntry, b: &AppEntry) -> std::cmp::Ordering {
     a.name.to_lowercase().cmp(&b.name.to_lowercase())
 }
@@ -141,8 +165,23 @@ fn by_name(a: &AppEntry, b: &AppEntry) -> std::cmp::Ordering {
 ///   sorted by `gpu` desc then `vram` desc then name asc (`vram` first when `gpu_sort` is
 ///   [`GpuSort::Vram`]), truncated to `n`.
 pub fn build_top(apps: &[AppEntry], n: usize, gpu_available: bool) -> Top {
-    let prefs = prefs_lock().read().expect("prefs lock").clone();
+    let prefs = prefs_lock().read().expect("prefs lock");
     build_top_with_prefs(apps, n, gpu_available, &prefs.pinned, &prefs.hidden, prefs.gpu_sort)
+}
+
+/// One visible app with the per-app facts every comparison needs, computed once.
+struct Ranked<'a> {
+    app: &'a AppEntry,
+    /// Lowercase name: pinned/hidden lookups and the final tie-break.
+    key: String,
+    pin: bool,
+}
+
+/// The first `cap` of `rows` that pass `include`, ordered by `order`; only these are cloned.
+fn top_k(rows: &[Ranked<'_>], cap: usize, include: impl Fn(&Ranked<'_>) -> bool, order: impl Fn(&Ranked<'_>, &Ranked<'_>) -> std::cmp::Ordering) -> Vec<AppEntry> {
+    let mut picked: Vec<&Ranked<'_>> = rows.iter().filter(|r| include(r)).collect();
+    picked.sort_by(|a, b| order(a, b));
+    picked.into_iter().take(cap).map(|r| r.app.clone()).collect()
 }
 
 pub fn build_top_with_prefs(
@@ -153,52 +192,44 @@ pub fn build_top_with_prefs(
     hidden: &HashSet<String>,
     gpu_sort: GpuSort,
 ) -> Top {
-    let visible: Vec<AppEntry> = apps
+    // Lowercasing a name per comparison (the previous code did, twice, in every comparison)
+    // dominated this function; do it once per app.
+    let rows: Vec<Ranked<'_>> = apps
         .iter()
-        .filter(|a| !hidden.contains(&a.name.to_lowercase()))
-        .cloned()
+        .filter_map(|app| {
+            let key = app.name.to_lowercase();
+            if hidden.contains(&key) {
+                return None;
+            }
+            let pin = pinned.contains(&key);
+            Some(Ranked { app, key, pin })
+        })
         .collect();
-    let is_pin = |a: &AppEntry| pinned.contains(&a.name.to_lowercase());
     let cap = n.saturating_add(pinned.len());
 
-    let mut by_cpu = visible.clone();
-    by_cpu.sort_by(|a, b| {
-        is_pin(b)
-            .cmp(&is_pin(a))
-            .then_with(|| b.cpu.total_cmp(&a.cpu))
-            .then_with(|| by_name(a, b))
+    let cpu = top_k(&rows, cap, |_| true, |a, b| {
+        b.pin.cmp(&a.pin).then_with(|| b.app.cpu.total_cmp(&a.app.cpu)).then_with(|| a.key.cmp(&b.key))
     });
-    by_cpu.truncate(cap);
-
-    let mut by_mem = visible.clone();
-    by_mem.sort_by(|a, b| {
-        is_pin(b)
-            .cmp(&is_pin(a))
-            .then_with(|| b.mem.cmp(&a.mem))
-            .then_with(|| by_name(a, b))
-    });
-    by_mem.truncate(cap);
-
+    let mem = top_k(&rows, cap, |_| true, |a, b| b.pin.cmp(&a.pin).then_with(|| b.app.mem.cmp(&a.app.mem)).then_with(|| a.key.cmp(&b.key)));
     let gpu = gpu_available.then(|| {
-        let mut by_gpu: Vec<AppEntry> = visible
-            .into_iter()
-            .filter(|a| is_pin(a) || a.gpu.unwrap_or(0.0) > 0.0 || a.vram.unwrap_or(0) > 0)
-            .collect();
-        by_gpu.sort_by(|a, b| {
-            let by_usage = || b.gpu.unwrap_or(0.0).total_cmp(&a.gpu.unwrap_or(0.0));
-            let by_vram = || b.vram.unwrap_or(0).cmp(&a.vram.unwrap_or(0));
-            let ranked = is_pin(b).cmp(&is_pin(a));
-            let ranked = match gpu_sort {
-                GpuSort::Usage => ranked.then_with(by_usage).then_with(by_vram),
-                GpuSort::Vram => ranked.then_with(by_vram).then_with(by_usage),
-            };
-            ranked.then_with(|| by_name(a, b))
-        });
-        by_gpu.truncate(cap);
-        by_gpu
+        top_k(
+            &rows,
+            cap,
+            |r| r.pin || r.app.gpu.unwrap_or(0.0) > 0.0 || r.app.vram.unwrap_or(0) > 0,
+            |a, b| {
+                let by_usage = || b.app.gpu.unwrap_or(0.0).total_cmp(&a.app.gpu.unwrap_or(0.0));
+                let by_vram = || b.app.vram.unwrap_or(0).cmp(&a.app.vram.unwrap_or(0));
+                let ranked = b.pin.cmp(&a.pin);
+                let ranked = match gpu_sort {
+                    GpuSort::Usage => ranked.then_with(by_usage).then_with(by_vram),
+                    GpuSort::Vram => ranked.then_with(by_vram).then_with(by_usage),
+                };
+                ranked.then_with(|| a.key.cmp(&b.key))
+            },
+        )
     });
 
-    Top { cpu: by_cpu, mem: by_mem, gpu }
+    Top { cpu, mem, gpu }
 }
 
 #[cfg(test)]
@@ -343,6 +374,138 @@ mod tests {
         let top_vram = build_top_with_prefs(&apps, 5, true, &empty, &empty, GpuSort::Vram);
         let vram_names: Vec<&str> = top_vram.gpu.as_ref().unwrap().iter().map(|e| e.name.as_str()).collect();
         assert_eq!(vram_names, vec!["vram_heavy.exe", "engine_heavy.exe"]);
+    }
+
+    /// The original implementations, kept as references the optimized ones must agree with.
+    fn group_by_name_reference(rows: &[ProcRow], gpu: Option<&HashMap<u32, ProcGpu>>, vram_cap: Option<u64>) -> Vec<AppEntry> {
+        let mut map: HashMap<String, AppEntry> = HashMap::new();
+        for r in rows {
+            if r.pid == 0 || r.name.is_empty() {
+                continue;
+            }
+            let g = gpu.map(|m| m.get(&r.pid).copied().unwrap_or_default());
+            let entry = map.entry(r.name.to_lowercase()).or_insert_with(|| AppEntry {
+                name: r.name.clone(),
+                count: 0,
+                cpu: 0.0,
+                mem: 0,
+                gpu: g.map(|_| 0.0),
+                vram: g.map(|_| 0),
+            });
+            entry.count += 1;
+            entry.cpu += r.cpu;
+            entry.mem += r.mem;
+            if let Some(pg) = g {
+                *entry.gpu.get_or_insert(0.0) += pg.gpu;
+                let v = entry.vram.get_or_insert(0);
+                *v = v.saturating_add(pg.vram);
+            }
+        }
+        let mut out: Vec<AppEntry> = map.into_values().collect();
+        for e in &mut out {
+            e.cpu = round1(e.cpu.clamp(0.0, 100.0));
+            if let Some(g) = &mut e.gpu {
+                *g = round1(g.clamp(0.0, 100.0));
+            }
+            if let (Some(v), Some(cap)) = (&mut e.vram, vram_cap) {
+                *v = (*v).min(cap);
+            }
+        }
+        out
+    }
+
+    fn build_top_reference(apps: &[AppEntry], n: usize, gpu_available: bool, pinned: &HashSet<String>, hidden: &HashSet<String>, gpu_sort: GpuSort) -> Top {
+        let visible: Vec<AppEntry> = apps.iter().filter(|a| !hidden.contains(&a.name.to_lowercase())).cloned().collect();
+        let is_pin = |a: &AppEntry| pinned.contains(&a.name.to_lowercase());
+        let cap = n.saturating_add(pinned.len());
+        let mut by_cpu = visible.clone();
+        by_cpu.sort_by(|a, b| is_pin(b).cmp(&is_pin(a)).then_with(|| b.cpu.total_cmp(&a.cpu)).then_with(|| by_name(a, b)));
+        by_cpu.truncate(cap);
+        let mut by_mem = visible.clone();
+        by_mem.sort_by(|a, b| is_pin(b).cmp(&is_pin(a)).then_with(|| b.mem.cmp(&a.mem)).then_with(|| by_name(a, b)));
+        by_mem.truncate(cap);
+        let gpu = gpu_available.then(|| {
+            let mut by_gpu: Vec<AppEntry> = visible
+                .into_iter()
+                .filter(|a| is_pin(a) || a.gpu.unwrap_or(0.0) > 0.0 || a.vram.unwrap_or(0) > 0)
+                .collect();
+            by_gpu.sort_by(|a, b| {
+                let by_usage = || b.gpu.unwrap_or(0.0).total_cmp(&a.gpu.unwrap_or(0.0));
+                let by_vram = || b.vram.unwrap_or(0).cmp(&a.vram.unwrap_or(0));
+                let ranked = is_pin(b).cmp(&is_pin(a));
+                let ranked = match gpu_sort {
+                    GpuSort::Usage => ranked.then_with(by_usage).then_with(by_vram),
+                    GpuSort::Vram => ranked.then_with(by_vram).then_with(by_usage),
+                };
+                ranked.then_with(|| by_name(a, b))
+            });
+            by_gpu.truncate(cap);
+            by_gpu
+        });
+        Top { cpu: by_cpu, mem: by_mem, gpu }
+    }
+
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 >> 33
+        }
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+    }
+
+    /// Random process rows: repeated names in mixed case, some non-ASCII, idle and busy, with GPU data.
+    fn random_machine(seed: u64) -> (Vec<ProcRow>, HashMap<u32, ProcGpu>) {
+        let names = ["chrome.exe", "Chrome.EXE", "svchost.exe", "Game.exe", "obs64.exe", "code.exe", "Ünïcode.exe", "ΑΣ.exe", "a.exe", "B.exe", "idle.exe", "mem.exe"];
+        let mut r = Lcg(seed * 104729 + 3);
+        let mut rows = Vec::new();
+        let mut gpu = HashMap::new();
+        for pid in 0..(r.below(120) as u32) {
+            let name = if r.below(3) == 0 { format!("app{}.exe", r.below(25)) } else { names[r.below(names.len() as u64) as usize].to_string() };
+            let cpu = if r.below(3) == 0 { r.below(900) as f32 / 10.0 } else { 0.0 };
+            rows.push(ProcRow { pid, name, cpu, mem: r.below(8) * 500_000_000 });
+            if r.below(2) == 0 {
+                gpu.insert(pid, ProcGpu { gpu: if r.below(3) == 0 { r.below(1000) as f32 / 10.0 } else { 0.0 }, vram: r.below(6) * 700_000_000 });
+            }
+        }
+        (rows, gpu)
+    }
+
+    fn sorted_by_name(mut v: Vec<AppEntry>) -> Vec<AppEntry> {
+        v.sort_by(by_name);
+        v
+    }
+
+    #[test]
+    fn optimized_grouping_matches_the_reference() {
+        for seed in 0..60 {
+            let (rows, gpu) = random_machine(seed);
+            for (g, cap) in [(None, None), (Some(&gpu), None), (Some(&gpu), Some(1_500_000_000))] {
+                assert_eq!(sorted_by_name(group_by_name(&rows, g, cap)), sorted_by_name(group_by_name_reference(&rows, g, cap)), "seed {seed}");
+            }
+        }
+    }
+
+    #[test]
+    fn optimized_top_lists_match_the_reference() {
+        for seed in 0..60 {
+            let (rows, gpu) = random_machine(seed);
+            let apps = group_by_name(&rows, Some(&gpu), Some(2_800_000_000));
+            let mut r = Lcg(seed + 11);
+            let pick = |r: &mut Lcg| -> HashSet<String> { apps.iter().filter(|_| r.below(5) == 0).map(|a| a.name.to_lowercase()).collect() };
+            let (pinned, hidden) = (pick(&mut r), pick(&mut r));
+            for n in [0, 1, 3, 24, 500] {
+                for available in [false, true] {
+                    for sort in [GpuSort::Usage, GpuSort::Vram] {
+                        let want = build_top_reference(&apps, n, available, &pinned, &hidden, sort);
+                        let got = build_top_with_prefs(&apps, n, available, &pinned, &hidden, sort);
+                        assert_eq!(want, got, "seed {seed}, n {n}, gpu {available}, sort {sort:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]
