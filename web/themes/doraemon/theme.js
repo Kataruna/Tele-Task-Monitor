@@ -1,4 +1,4 @@
-// Doraemon Story of Seasons ("Noby Farm") Theme Logic
+// Village Theme — Inspired by Doraemon Story of Seasons
 
 const TABS = ["status", "cpu", "ram", "gpu"];
 const TAB_TITLES = {

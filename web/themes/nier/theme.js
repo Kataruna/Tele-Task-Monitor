@@ -1,4 +1,4 @@
-// NieR:Automata YoRHa Theme ("OVERVIEW - All-System Telemetry Brief")
+// Automata Theme — Inspired by NieR:Automata YoRHa UI ("OVERVIEW - All-System Telemetry Brief")
 
 const OVERVIEW_ROWS = 8;
 const MAX_ROWS = 24;

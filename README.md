@@ -47,11 +47,11 @@ Tele-Task-Monitor/
     ├── manifest.webmanifest    # Standalone PWA manifest for iPadOS / iOS Home Screen installation
     └── themes/
         ├── manifest.json       # Registry of installed themes (`id`, `name`, `bgColor`)
-        ├── nier/               # "Automata" (default) — NieR:Automata YoRHa Plug-in Chips UI
+        ├── nier/               # "Automata" (default) — Inspired by NieR:Automata YoRHa Plug-in Chips UI
         │   ├── template.html
         │   ├── style.css
         │   └── theme.js
-        ├── doraemon/           # "Village" — Story of Seasons wooden farm status board
+        ├── doraemon/           # "Village" — Inspired by Doraemon Story of Seasons wooden farm status board
         │   ├── template.html
         │   ├── style.css
         │   └── theme.js
@@ -108,8 +108,8 @@ All settings are saved automatically to `settings.json`.
 
 | Theme Name | Folder ID | Style |
 |---|---|---|
-| **Automata** *(Default)* | `web/themes/nier/` | *NieR:Automata* YoRHa UI with `OVERVIEW`, `CPU`, `MEMORY`, `GPU / VRAM`, and `INTEL` tabs, live mode-aware central capacity stack, 4× 60s oscilloscope waves, and 12 core squares. |
-| **Village** | `web/themes/doraemon/` | *Doraemon Story of Seasons* wooden status board with `Status`, `CPU Crop`, `Memory`, and `GPU / VRAM` folder tabs, stamina bars, cookware core stars, and bell checkerboard parchment. |
+| **Automata** *(Default)* | `web/themes/nier/` | Inspired by *NieR:Automata* — YoRHa UI with `OVERVIEW`, `CPU`, `MEMORY`, `GPU / VRAM`, and `INTEL` tabs, live mode-aware central capacity stack, 4× 60s oscilloscope waves, and 12 core squares. |
+| **Village** | `web/themes/doraemon/` | Inspired by *Doraemon Story of Seasons* — Wooden status board with `Status`, `CPU Crop`, `Memory`, and `GPU / VRAM` folder tabs, stamina bars, cookware core stars, and bell checkerboard parchment. |
 | **Classic Dark** | `web/themes/default/` | High-contrast dark telemetry dashboard with 4 sparkline cards, per-core bar strip, and 3 process columns. |
 
 ---
