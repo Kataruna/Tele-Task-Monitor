@@ -65,6 +65,16 @@ impl Sampler {
         }
     }
 
+    /// Free the scratch memory used while sampling (call when the last viewer has left). It is
+    /// all re-created on demand, so this only costs a little work on the next wake-up.
+    pub fn release_idle(&mut self) {
+        self.snapshot.release();
+        self.tracker.clear();
+        if let Some(c) = self.gpu_counters.as_mut() {
+            c.release();
+        }
+    }
+
     /// Establish baselines for every delta-based reading. Call after waking from idle,
     /// then wait one interval before `sample()`.
     pub fn prime(&mut self) {
@@ -147,11 +157,20 @@ pub fn spawn(viewers: Arc<Viewers>, tx: SampleTx, interval: Duration) -> Info {
     info_rx.recv().expect("sampler thread sent info")
 }
 
-/// Sampling loop. Sleeps (zero OS calls) while there are no viewers. Missed ticks are
-/// skipped, never queued.
+/// How long the monitor must stay unwatched before its working set is trimmed. A tab switch or a
+/// locked iPad should not make the next wake-up fault everything back in.
+const IDLE_TRIM_AFTER: Duration = Duration::from_secs(30);
+
+/// Sampling loop. Sleeps (zero OS calls) while there are no viewers, frees its scratch memory
+/// when the last one leaves, and trims its working set after a longer idle spell. Missed ticks
+/// are skipped, never queued.
 fn run(sampler: &mut Sampler, viewers: &Viewers, tx: &SampleTx, interval: Duration) {
     loop {
-        viewers.wait_for_viewer();
+        sampler.release_idle();
+        if !viewers.wait_for_viewer_timeout(IDLE_TRIM_AFTER) {
+            crate::priority::trim_working_set();
+            viewers.wait_for_viewer();
+        }
         sampler.prime();
         let mut next = Instant::now() + interval;
         while viewers.count() > 0 {

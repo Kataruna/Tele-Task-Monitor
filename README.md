@@ -3,6 +3,8 @@
 A lean, windowless **Windows 11 System Tray telemetry server** and **pluggable web dashboard** that streams live CPU, RAM, GPU, VRAM, per-core load, and top processes to an iPad (or any browser on your LAN) at 1 Hz over Server-Sent Events (SSE).
 
 - **0% CPU when idle:** The sampler thread parks on a condition variable when no browser/iPad is connected.
+- **Stops sampling when nobody can see it:** a dashboard in a background tab, or on a locked iPad, closes its stream and reconnects when shown again, so the PC stops sampling too.
+- **Gives memory back when idle:** the sampler frees its scratch buffers when the last viewer leaves, and trims the process working set after 30 s without one.
 - **< 0.5% CPU & < 15 MB RAM when active:** Runs at `BELOW_NORMAL_PRIORITY_CLASS` + Windows 11 EcoQoS so games always pre-empt it.
 - **Native System Tray App:** Runs silently in the Windows notification tray with one-click LAN URL copy, dashboard launch, Settings, and Quit.
 - **Pluggable Full-Layout Themes:** Each theme in `web/themes/<id>/` defines its own complete HTML structure, CSS styling, and JS rendering logic.

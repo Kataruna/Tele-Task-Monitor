@@ -47,19 +47,35 @@ struct SpiEntry {
     unique_process_id: usize,
 }
 
-/// Owns the reusable snapshot buffer (grows as needed, never shrinks).
+/// First size of the snapshot buffer (256 KiB); real machines need ~0.5-1.5 MiB, learned on the
+/// first snapshot.
+const INITIAL_BUF_WORDS: usize = 32 * 1024;
+
+/// Owns the reusable snapshot buffer. It is allocated on the first snapshot, grows to what the
+/// kernel asks for, and is freed by `release` while nobody is watching.
 /// `Vec<u64>` guarantees the 8-byte alignment the kernel records need.
 pub struct ProcSnapshot {
     buf: Vec<u64>,
+    /// Largest length seen, so the buffer is re-created at the right size after a `release`.
+    hint_words: usize,
 }
 
 impl ProcSnapshot {
     pub fn new() -> Self {
-        Self { buf: vec![0u64; 128 * 1024] } // 1 MiB
+        Self { buf: Vec::new(), hint_words: 0 }
+    }
+
+    /// Free the buffer (the next `take` re-allocates it at its previous size).
+    pub fn release(&mut self) {
+        self.hint_words = self.hint_words.max(self.buf.len());
+        self.buf = Vec::new();
     }
 
     /// Take one snapshot of every process on the system.
     pub fn take(&mut self) -> Result<Vec<RawProc>, String> {
+        if self.buf.is_empty() {
+            self.buf.resize(self.hint_words.max(INITIAL_BUF_WORDS), 0);
+        }
         loop {
             let mut needed = 0u32;
             let byte_len = self.buf.len() * 8;
@@ -106,10 +122,12 @@ impl ProcSnapshot {
     }
 }
 
-/// Compute the next `u64` buffer length on `STATUS_INFO_LENGTH_MISMATCH`, guaranteeing
-/// monotonic growth even when the kernel reports `needed == 0` or a smaller hint.
+/// Compute the next `u64` buffer length on `STATUS_INFO_LENGTH_MISMATCH`: what the kernel asked
+/// for plus 64 KiB for processes that start meanwhile, and always strictly larger than now even
+/// when the kernel reports `needed == 0` or a smaller hint. (Doubling would zero-fill, and so
+/// commit, memory that is never used.)
 fn next_buf_len(current_len: usize, needed_bytes: u32) -> usize {
-    (needed_bytes as usize / 8 + 8 * 1024).max(current_len.saturating_mul(2).max(8 * 1024))
+    (needed_bytes as usize / 8 + 8 * 1024).max(current_len.saturating_add(8 * 1024))
 }
 
 /// Decode `SpiEntry::image_name` only when `buffer` is non-null, 2-byte aligned, and
@@ -142,6 +160,12 @@ pub struct CpuTracker {
 }
 
 impl CpuTracker {
+    /// Forget every baseline (call while idle: after a pause they are stale anyway). The next
+    /// `update` reports 0 % for everything, exactly like the first one.
+    pub fn clear(&mut self) {
+        self.prev = HashMap::new();
+    }
+
     /// `wall` is the real time elapsed since the previous call. On the first call (or for a
     /// process not seen before / whose PID was reused) CPU is reported as 0.
     pub fn update(&mut self, procs: &[RawProc], wall: Duration, logical_cores: usize) -> Vec<ProcRow> {
@@ -201,6 +225,17 @@ mod tests {
     }
 
     #[test]
+    fn cleared_tracker_starts_over() {
+        let mut t = CpuTracker::default();
+        t.update(&[raw(1, 0, 7)], Duration::from_secs(1), 1);
+        t.clear();
+        let rows = t.update(&[raw(1, 9_000_000, 7)], Duration::from_secs(1), 1);
+        assert_eq!(rows[0].cpu, 0.0, "no baseline after clear");
+        let rows = t.update(&[raw(1, 19_000_000, 7)], Duration::from_secs(1), 1);
+        assert!((rows[0].cpu - 100.0).abs() < 0.01, "baseline is re-established");
+    }
+
+    #[test]
     fn reused_pid_is_treated_as_new_process() {
         let mut t = CpuTracker::default();
         t.update(&[raw(1, 0, 7)], Duration::from_secs(1), 1);
@@ -220,11 +255,26 @@ mod tests {
     }
 
     #[test]
+    fn released_snapshot_buffer_comes_back_at_its_old_size() {
+        let mut snap = ProcSnapshot::new();
+        let before = snap.take().expect("snapshot").len();
+        let grown = snap.buf.len();
+        snap.release();
+        assert!(snap.buf.is_empty(), "released memory is freed");
+        let again = snap.take().expect("snapshot after release");
+        assert!(again.iter().any(|p| p.pid == std::process::id()));
+        assert!(before > 20 && again.len() > 20);
+        assert!(snap.buf.len() >= grown.min(snap.hint_words), "re-created at the learned size");
+    }
+
+    #[test]
     fn buffer_growth_is_monotonic_and_bounds_check_rejects_bad_pointers() {
-        // Needed == 0 still doubles the current buffer instead of shrinking.
-        assert_eq!(next_buf_len(128 * 1024, 0), 256 * 1024);
-        // Large needed hint grows beyond 2x when required.
-        assert_eq!(next_buf_len(128 * 1024, 4 * 1024 * 1024), 4 * 1024 * 1024 / 8 + 8 * 1024);
+        // Needed == 0 still grows (by a fixed step), never shrinks and never stalls.
+        assert_eq!(next_buf_len(128 * 1024, 0), 136 * 1024);
+        // A smaller hint than the current size also grows.
+        assert!(next_buf_len(128 * 1024, 1024) > 128 * 1024);
+        // The kernel's request plus 64 KiB headroom, not a doubling.
+        assert_eq!(next_buf_len(32 * 1024, 4 * 1024 * 1024), 4 * 1024 * 1024 / 8 + 8 * 1024);
 
         let backing: [u16; 4] = [b'a' as u16, b'b' as u16, b'c' as u16, 0];
         let base = backing.as_ptr() as *const u8;

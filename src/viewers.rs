@@ -1,6 +1,7 @@
 //! Counts connected dashboard viewers so the sampler can sleep when nobody is watching.
 
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 #[derive(Default)]
 pub struct Viewers {
@@ -32,6 +33,16 @@ impl Viewers {
         while *n == 0 {
             n = self.changed.wait(n).unwrap();
         }
+    }
+}
+
+impl Viewers {
+    /// Block until at least one viewer is connected or `timeout` passes. Returns whether a
+    /// viewer is connected.
+    pub fn wait_for_viewer_timeout(&self, timeout: Duration) -> bool {
+        let n = self.count.lock().unwrap();
+        let (n, _) = self.changed.wait_timeout_while(n, timeout, |n| *n == 0).unwrap();
+        *n > 0
     }
 }
 
@@ -78,5 +89,30 @@ mod tests {
         let v = Viewers::new();
         let _g = v.enter();
         v.wait_for_viewer();
+    }
+
+    #[test]
+    fn timed_wait_gives_up_when_nobody_arrives() {
+        let v = Viewers::new();
+        assert!(!v.wait_for_viewer_timeout(Duration::from_millis(60)));
+    }
+
+    #[test]
+    fn timed_wait_returns_as_soon_as_a_viewer_arrives() {
+        let v = Viewers::new();
+        let v2 = Arc::clone(&v);
+        let h = std::thread::spawn(move || v2.wait_for_viewer_timeout(Duration::from_secs(10)));
+        std::thread::sleep(Duration::from_millis(80));
+        let t = std::time::Instant::now();
+        let _g = v.enter();
+        assert!(h.join().unwrap());
+        assert!(t.elapsed() < Duration::from_secs(5), "must wake on arrival, not on timeout");
+    }
+
+    #[test]
+    fn timed_wait_returns_immediately_when_already_watched() {
+        let v = Viewers::new();
+        let _g = v.enter();
+        assert!(v.wait_for_viewer_timeout(Duration::from_secs(10)));
     }
 }
