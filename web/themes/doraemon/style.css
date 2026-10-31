@@ -1,0 +1,847 @@
+/* Doraemon Story of Seasons ("Noby Farm") Theme */
+
+:root {
+  --dora-wood-top: #9e632b;
+  --dora-wood-bot: #784516;
+  --dora-wood-border: #4e290a;
+  --dora-cream: #fef5cd;
+  --dora-cream-card: #f6df98;
+  --dora-cream-card-border: #eab95b;
+  --dora-medallion: #ecd082;
+  --dora-brown-text: #4e2b11;
+  --dora-brown-soft: #7b4e27;
+  --dora-ribbon: #834d1e;
+  --dora-track: #4c291d;
+  --dora-orange: #f48116;
+  --dora-green: #52b748;
+  --dora-blue: #0098e8;
+
+  /* Repeating 88x88 Doraemon Bell checkerboard pattern */
+  --bell-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='88' height='88' viewBox='0 0 88 88'%3E%3Crect width='88' height='88' fill='%23fef5cd'/%3E%3Crect width='44' height='44' fill='%23f8e8aa'/%3E%3Crect x='44' y='44' width='44' height='44' fill='%23f8e8aa'/%3E%3Cg fill='none' stroke='%23e7d184' stroke-width='1.5' opacity='0.65'%3E%3Ccircle cx='22' cy='22' r='11'/%3E%3Cpath d='M12 20 Q22 24 32 20'/%3E%3Ccircle cx='22' cy='25' r='2' fill='%23e7d184'/%3E%3Cline x1='22' y1='27' x2='22' y2='32'/%3E%3Ccircle cx='66' cy='66' r='11'/%3E%3Cpath d='M56 64 Q66 68 76 64'/%3E%3Ccircle cx='66' cy='69' r='2' fill='%23e7d184'/%3E%3Cline x1='66' y1='71' x2='66' y2='76'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+.dora-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 6px;
+  padding: max(10px, var(--top-safe-pad, 10px)) max(14px, env(safe-area-inset-right, 0px))
+           max(8px, env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px));
+  /* Soft watercolor pastoral meadow background behind the wooden board */
+  background:
+    radial-gradient(circle at 12% 18%, rgba(244, 194, 209, 0.45) 0%, transparent 32%),
+    radial-gradient(circle at 88% 22%, rgba(163, 211, 138, 0.45) 0%, transparent 36%),
+    radial-gradient(circle at 50% 90%, rgba(126, 179, 86, 0.55) 0%, transparent 45%),
+    linear-gradient(180deg, #749b57 0%, #5a7d3e 55%, #46632f 100%);
+  color: var(--dora-brown-text);
+  font-family: "Trebuchet MS", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Arched Sun / Weather Emblem in top-left corner */
+.dora-weather {
+  position: absolute;
+  top: max(6px, var(--top-safe-pad, 6px));
+  left: max(8px, env(safe-area-inset-left, 0px));
+  width: 54px;
+  height: 46px;
+  z-index: 20;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+.dora-weather .sun-spin {
+  transform-origin: 34px 29px;
+  animation: doraSunPulse 8s ease-in-out infinite;
+}
+@keyframes doraSunPulse {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  50% { transform: scale(1.06) rotate(12deg); }
+}
+
+/* Main Wooden Board */
+.dora-board {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--dora-wood-top) 0%, var(--dora-wood-bot) 100%);
+  border: 3px solid var(--dora-wood-border);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    inset 0 2px 1px rgba(255, 230, 180, 0.35);
+  padding: 0 5px 5px;
+  min-height: 0;
+  margin-left: 34px; /* leave room for top-left weather arch */
+}
+
+/* Wooden Top Header Bar & Folder Tabs */
+.dora-woodbar {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 48px;
+  padding: 4px 36px 0;
+}
+
+.dora-screw {
+  position: absolute;
+  top: 12px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe082 0%, #d49a2a 65%, #8c5811 100%);
+  border: 1.5px solid #4e290a;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.dora-screw::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 2px;
+  right: 2px;
+  height: 2px;
+  background: #6d3f0d;
+  transform: rotate(-28deg);
+}
+.dora-screw.left { left: 10px; }
+.dora-screw.right { right: 10px; }
+
+.dora-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.dora-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  width: 128px;
+  height: 42px;
+  padding: 0 8px 4px;
+  border-radius: 12px 12px 0 0;
+  border: 2px solid #6e3f14;
+  border-bottom: none;
+  background: linear-gradient(180deg, #dfab68 0%, #c18541 100%);
+  color: #fff8e7;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  text-shadow:
+    -1px -1px 0 #522b0a,
+     1px -1px 0 #522b0a,
+    -1px  1px 0 #522b0a,
+     1px  1px 0 #522b0a,
+     0    2px 2px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.dora-tab:hover {
+  filter: brightness(1.05);
+}
+
+.dora-tab.active {
+  height: 45px;
+  background: var(--dora-cream);
+  border-color: #b5833d;
+  color: #fff;
+  z-index: 2;
+  margin-bottom: -2px;
+}
+
+.dora-tab .tab-art {
+  position: absolute;
+  top: -10px;
+  width: 52px;
+  height: 34px;
+  pointer-events: none;
+}
+.dora-tab .tab-art svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.dora-tab .tab-label {
+  position: relative;
+  z-index: 1;
+  letter-spacing: 0.02em;
+}
+
+/* Inner Cream Parchment Area */
+.dora-parchment {
+  background: var(--dora-cream);
+  border-radius: 11px;
+  padding: 6px 14px 10px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 5px;
+  min-height: 0;
+  box-shadow: inset 0 0 0 2px #f2dea0;
+}
+
+/* Page Indicator Dots */
+.dora-dots {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding-top: 1px;
+}
+.pdot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #e4b85c;
+  border: 1.5px solid #b58335;
+}
+.pdot.active {
+  background: var(--dora-blue);
+  border-color: #0068a8;
+  transform: scale(1.15);
+}
+
+/* Brown Ribbon Title ("Kataru Farm") + Dashed Diamond Lines */
+.dora-ribbon-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.dora-ribbon-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dora-back-btn {
+  background: #6b3d15;
+  color: #fff6dc;
+  border: 1.5px solid #4a280a;
+  border-radius: 8px;
+  padding: 3px 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.dora-back-btn:hover {
+  background: #532e0f;
+}
+.dora-back-btn[hidden] {
+  display: none !important;
+}
+[data-jump] {
+  cursor: pointer;
+}
+.dora-ribbon {
+  background: var(--dora-ribbon);
+  color: #fff6dc;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 44px;
+  border-radius: 9px;
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.dashed-line {
+  display: flex;
+  align-items: center;
+  position: relative;
+  height: 10px;
+}
+.dashed-line::before {
+  content: "";
+  flex: 1;
+  border-top: 3px dashed #cba365;
+}
+.dashed-line.left .diamond { margin-right: 4px; order: -1; }
+.dashed-line.right .diamond { margin-left: 4px; }
+.diamond {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #cba365;
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+
+/* Tab Panes */
+.dora-pane {
+  display: none;
+  min-height: 0;
+}
+.dora-pane.active {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 7px;
+  min-height: 0;
+}
+.dora-pane[data-pane="cpu"].active,
+.dora-pane[data-pane="ram"].active,
+.dora-pane[data-pane="gpu"].active {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* Cards inside Parchment */
+.dora-card {
+  background: var(--dora-cream-card);
+  border: 2px solid var(--dora-cream-card-border);
+  border-radius: 12px;
+  padding: 7px 11px;
+  min-width: 0;
+}
+
+/* Row 1: Stamina | Farmhouse | Cookware Cores */
+.dora-row-top {
+  display: grid;
+  grid-template-columns: 1.25fr 0.9fr 1.65fr;
+  gap: 9px;
+  align-items: stretch;
+}
+
+.medallion {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--dora-medallion);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.medallion svg {
+  width: 48px;
+  height: 48px;
+  overflow: visible;
+}
+
+.stamina-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stamina-bars {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.stamina-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  line-height: 1;
+}
+.stamina-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--dora-brown-text);
+}
+.stamina-num {
+  font-variant-numeric: tabular-nums;
+  color: var(--dora-brown-text);
+}
+.stamina-num strong {
+  font-size: 18px;
+  font-weight: 800;
+}
+.stamina-num small {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.stamina-track {
+  height: 13px;
+  background: var(--dora-track);
+  border-radius: 7px;
+  overflow: hidden;
+  padding: 1.5px;
+}
+.stamina-fill {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #ff9d2e 0%, var(--dora-orange) 100%);
+  transition: width 0.25s ease;
+}
+.stamina-fill.gpu-fill {
+  background: linear-gradient(180deg, #74d668 0%, var(--dora-green) 100%);
+}
+
+/* Farmhouse Card */
+.home-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.home-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.home-line strong {
+  display: inline-block;
+  width: 42px;
+  color: var(--dora-brown-soft);
+}
+.home-sub {
+  font-size: 11.5px;
+  color: var(--dora-brown-soft);
+  font-weight: 700;
+}
+
+/* Cookware / 12 CPU Cores Card */
+.cookware-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cookware-title {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--dora-brown-text);
+  flex-shrink: 0;
+}
+.cookware-title small {
+  font-size: 11px;
+  color: var(--dora-brown-soft);
+}
+.cookware-slots {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(28px, 1fr));
+  gap: 4px;
+  align-items: end;
+}
+.core-utensil {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.utensil-Well {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ebd082;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d8b55d;
+}
+.utensil-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, #ff9d2e 0%, #e06d0c 100%);
+  opacity: 0.85;
+  transition: height 0.25s ease;
+}
+.utensil-fill.hot {
+  background: linear-gradient(180deg, #ff6b6b 0%, #d62828 100%);
+}
+.utensil-icon {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--dora-brown-text);
+}
+.utensil-stars {
+  font-size: 7.5px;
+  letter-spacing: -1px;
+  line-height: 1;
+  color: #d5b86a;
+}
+.utensil-stars .lit {
+  color: #b86b14;
+}
+
+/* Row 2: Ranch Cards with 60s mini graphs */
+.dora-row-mid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+.ranch-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.ranch-card:hover {
+  border-color: #c98a2c;
+}
+.ranch-medallion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 68px;
+  text-align: center;
+}
+.ranch-medallion svg {
+  width: 44px;
+  height: 44px;
+  background: var(--dora-medallion);
+  border-radius: 50%;
+  padding: 3px;
+}
+.ranch-caption {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.ranch-caption span {
+  font-weight: 800;
+  color: #a64b00;
+  font-variant-numeric: tabular-nums;
+}
+.ranch-chart-box {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ranch-chart-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--dora-brown-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+.dora-mini-canvas {
+  width: 100%;
+  height: 46px;
+  background: rgba(254, 245, 205, 0.65);
+  border: 1px solid #dfb963;
+  border-radius: 8px;
+}
+
+/* Dashed Divider before Bell Checkerboard */
+.dora-divider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dora-divider .dashed-rule {
+  flex: 1;
+  border-top: 3px dashed #cba365;
+}
+
+/* Bell Checkerboard Bottom Board (3x Top 10 Columns) */
+.dora-bell-board {
+  background-image: var(--bell-pattern);
+  background-size: 88px 88px;
+  border-radius: 10px;
+  border: 1.5px solid #e7c975;
+  padding: 6px 8px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  min-height: 0;
+}
+.dora-bell-board.single-col {
+  grid-template-columns: 1fr;
+}
+
+.dora-top-col {
+  background: rgba(254, 245, 205, 0.78);
+  border: 1.5px solid #e2bc64;
+  border-radius: 10px;
+  padding: 5px 9px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dora-top-col h3 {
+  margin: 0 0 3px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--dora-ribbon);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1.5px dashed #d6b05c;
+  padding-bottom: 2px;
+}
+
+.dora-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dora-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px 6px;
+  padding: 2.5px 0;
+  border-top: 1px solid rgba(203, 163, 101, 0.35);
+  font-size: 12.5px;
+  align-items: baseline;
+}
+.dora-list li:first-child { border-top: none; }
+.dora-list .app-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+}
+.dora-list .app-count {
+  font-size: 10.5px;
+  color: var(--dora-brown-soft);
+  margin-left: 3px;
+  font-weight: 600;
+}
+.dora-list .app-val {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #7c3800;
+}
+.dora-list .app-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  background: #4c291d;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.dora-list .app-bar i {
+  display: block;
+  height: 100%;
+  background: var(--dora-orange);
+}
+#st-top-gpu .app-bar i,
+#det-top-gpu .app-bar i {
+  background: var(--dora-green);
+}
+#st-top-mem .app-bar i,
+#det-top-mem .app-bar i {
+  background: var(--dora-blue);
+}
+.dora-list .empty {
+  color: var(--dora-brown-soft);
+  font-style: italic;
+  padding: 6px 0;
+}
+
+/* Detail Panes (Tabs 2, 3, 4) */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+.detail-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.detail-hero-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.detail-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--dora-brown-soft);
+}
+.detail-big {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--dora-ribbon);
+  font-variant-numeric: tabular-nums;
+}
+.dora-big-canvas {
+  width: 100%;
+  height: 110px;
+  background: rgba(254, 245, 205, 0.75);
+  border: 1.5px solid #dfb963;
+  border-radius: 10px;
+}
+
+.det-cores-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.det-core-box {
+  background: rgba(254, 245, 205, 0.75);
+  border: 1px solid #dfb963;
+  border-radius: 8px;
+  padding: 4px 7px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.det-core-top {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+.det-core-bar {
+  height: 7px;
+  background: var(--dora-track);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.det-core-bar i {
+  display: block;
+  height: 100%;
+  background: var(--dora-orange);
+}
+
+.livestock-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  text-align: center;
+}
+.livestock-slot {
+  background: rgba(254, 245, 205, 0.7);
+  border: 1px solid #dfb963;
+  border-radius: 10px;
+  padding: 8px;
+}
+.livestock-badge {
+  font-size: 26px;
+  line-height: 1.1;
+}
+.livestock-label {
+  font-size: 12px;
+  color: var(--dora-brown-soft);
+  font-weight: 700;
+  margin-top: 2px;
+}
+.livestock-val {
+  font-size: 16px;
+  font-weight: 800;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gpu-badges-row {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+}
+.gpu-pill {
+  background: rgba(254, 245, 205, 0.8);
+  border: 1px solid #dfb963;
+  border-radius: 999px;
+  padding: 3px 12px;
+}
+
+/* Bottom Controller Prompt Bar */
+.dora-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 8px 0 38px;
+  color: #fff6e0;
+  font-size: 13px;
+}
+
+.dora-live-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(38, 24, 12, 0.72);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.dora-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #aaa;
+}
+.dora-dot.live { background: #5ee08a; }
+.dora-dot.down { background: #ff5d5d; }
+.dora-sep { opacity: 0.6; }
+
+.dora-b-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(38, 24, 12, 0.82);
+  color: #fff;
+  border: 1.5px solid rgba(255, 235, 190, 0.35);
+  border-radius: 999px;
+  padding: 4px 16px 4px 6px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.dora-b-btn:hover {
+  background: rgba(65, 40, 18, 0.92);
+}
+.b-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff3d1;
+  color: #3d220a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.dora-lr-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(38, 24, 12, 0.72);
+  padding: 3px 6px;
+  border-radius: 8px;
+}
+.lr-key {
+  background: rgba(255, 243, 209, 0.85);
+  color: #3d220a;
+  border: none;
+  border-radius: 4px;
+  width: 22px;
+  height: 20px;
+  font-weight: 900;
+  font-size: 11px;
+  cursor: pointer;
+}
+.lr-key:hover { background: #fff; }
+.lr-label {
+  min-width: 78px;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 700;
+}
