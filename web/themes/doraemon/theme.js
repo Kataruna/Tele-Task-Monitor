@@ -58,6 +58,8 @@ export function mount(root, host) {
     detVramCanvas: $("det-vram-canvas"),
     detGpuTemp: $("det-gpu-temp"),
     detGpuPower: $("det-gpu-power"),
+    stGpuSortBtn: $("dora-st-gpu-sort"),
+    detGpuSortBtn: $("dora-det-gpu-sort"),
     doraDot: $("dora-dot"),
     doraStatusText: $("dora-status-text"),
     doraSelf: $("dora-self"),
@@ -167,6 +169,23 @@ export function mount(root, host) {
     }
   }
 
+  function updateDoraGpuSortBtns() {
+    const isVram = host.getGpuSort() === "vram";
+    if (els.stGpuSortBtn) els.stGpuSortBtn.textContent = isVram ? "[VRAM]" : "[%]";
+    if (els.detGpuSortBtn) els.detGpuSortBtn.textContent = isVram ? "[Sort: VRAM]" : "[Sort: %]";
+  }
+  const onDoraToggleGpuSort = (ev) => {
+    if (ev) {
+      ev.stopPropagation();
+      ev.preventDefault();
+    }
+    host.toggleGpuSort();
+    updateDoraGpuSortBtns();
+    if (lastSample) renderAllLists(lastSample);
+  };
+  if (els.stGpuSortBtn) els.stGpuSortBtn.addEventListener("click", onDoraToggleGpuSort);
+  if (els.detGpuSortBtn) els.detGpuSortBtn.addEventListener("click", onDoraToggleGpuSort);
+
   let lastSample = null;
 
   function makeList(listEl, count = 15) {
@@ -177,30 +196,20 @@ export function mount(root, host) {
       const li = document.createElement("li");
       const nameWrap = document.createElement("span");
       nameWrap.className = "app-name";
+      const pinBadge = document.createElement("span");
+      pinBadge.className = "dora-pin-badge";
+      pinBadge.innerHTML = `<svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor" aria-hidden="true"><line x1="8" y1="11.5" x2="8" y2="15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.5 2h7l-1 4v3.5l1.5 2H4l1.5-2V6L4.5 2z"/></svg>`;
+      pinBadge.hidden = true;
       const name = document.createElement("span");
       const cnt = document.createElement("span");
       cnt.className = "app-count";
-      nameWrap.append(name, cnt);
+      nameWrap.append(pinBadge, name, cnt);
 
       const rightWrap = document.createElement("span");
       rightWrap.className = "app-right";
       const val = document.createElement("span");
       val.className = "app-val";
-
-      const actions = document.createElement("span");
-      actions.className = "app-actions";
-      const pinBtn = document.createElement("button");
-      pinBtn.type = "button";
-      pinBtn.className = "app-act-btn";
-      pinBtn.textContent = "📌";
-      pinBtn.title = "Pin / Unpin process on top";
-      const hideBtn = document.createElement("button");
-      hideBtn.type = "button";
-      hideBtn.className = "app-act-btn";
-      hideBtn.textContent = "✕";
-      hideBtn.title = "Hide process";
-      actions.append(pinBtn, hideBtn);
-      rightWrap.append(val, actions);
+      rightWrap.appendChild(val);
 
       const bar = document.createElement("div");
       bar.className = "app-bar";
@@ -214,26 +223,25 @@ export function mount(root, host) {
       li.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (!entryName) return;
-        host.setFocusedProcess(entryName);
+        const cur = host.getFocusedProcess();
+        if (cur && cur.toLowerCase() === entryName.toLowerCase()) {
+          host.setFocusedProcess(null);
+        } else {
+          host.setFocusedProcess(entryName);
+        }
         if (lastSample) renderAllLists(lastSample);
       });
-      pinBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (entryName) host.togglePin(entryName);
-      });
-      hideBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (entryName) host.hideProcess(entryName);
-      });
+
+      host.bindProcessRow(li, () => entryName);
 
       listEl.appendChild(li);
       items.push({
         li,
+        pinBadge,
         name,
         cnt,
         val,
         fill,
-        pinBtn,
         setEntryName(n) {
           entryName = n;
         },
@@ -282,14 +290,14 @@ export function mount(root, host) {
       r.li.hidden = false;
       r.setEntryName(e.name);
       const pinned = Boolean(e._pinned);
-      r.name.textContent = pinned ? `📌 ${e.name}` : e.name;
+      r.pinBadge.hidden = !pinned;
+      r.name.textContent = e.name;
       r.cnt.textContent = e.count > 1 ? `×${e.count}` : "";
       r.val.textContent = fmtVal(e);
       const pct = Math.max(0, Math.min(100, pctFn(e)));
       r.fill.style.width = `${pct.toFixed(1)}%`;
       r.li.classList.toggle("is-pinned", pinned);
       r.li.classList.toggle("focused", Boolean(focused) && e.name.toLowerCase() === focused);
-      r.pinBtn.classList.toggle("active", pinned);
       if (pinned) lastPinnedIdx = i;
       visibleCount++;
     }
@@ -300,9 +308,21 @@ export function mount(root, host) {
   }
 
   function renderAllLists(s) {
+    const isVram = host.getGpuSort() === "vram";
+    const showSecondary = host.getSecondaryMetrics();
+    updateDoraGpuSortBtns();
+
     const prepCpu = host.prepareList(s.top.cpu || [], "cpu");
     const prepMem = host.prepareList(s.top.mem || [], "mem");
     const prepGpu = s.top.gpu === null ? null : host.prepareList(s.top.gpu || [], "gpu");
+
+    const focused = host.getFocusedProcess();
+    if (focused) {
+      const allNames = [...(s.top.cpu || []), ...(s.top.mem || []), ...(s.top.gpu || [])].map((e) => e.name.toLowerCase());
+      if (!allNames.includes(focused.toLowerCase()) && prepCpu[0]) {
+        host.setFocusedProcess(prepCpu[0].name);
+      }
+    }
 
     const cpuFmt = (e) => `${e.cpu.toFixed(1)}%`;
     const cpuPct = (e) => e.cpu;
@@ -310,7 +330,7 @@ export function mount(root, host) {
     fillList(
       lists.detCpu,
       prepCpu,
-      (e) => `${e.cpu.toFixed(1)}% · ${host.fmtBytes(e.mem)}`,
+      showSecondary ? (e) => `${e.cpu.toFixed(1)}% · ${host.fmtBytes(e.mem)}` : cpuFmt,
       cpuPct,
       "All quiet on the farm"
     );
@@ -321,7 +341,7 @@ export function mount(root, host) {
     fillList(
       lists.detMem,
       prepMem,
-      (e) => `${host.fmtBytes(e.mem)} · ${e.cpu.toFixed(1)}% CPU`,
+      showSecondary ? (e) => `${host.fmtBytes(e.mem)} · ${e.cpu.toFixed(1)}% CPU` : memFmt,
       memPct,
       "Barn is empty"
     );
@@ -330,8 +350,12 @@ export function mount(root, host) {
       fillList(lists.stGpu, [], () => "", () => 0, "GPU metrics unavailable");
       fillList(lists.detGpu, [], () => "", () => 0, "GPU metrics unavailable");
     } else {
-      const gpuFmt = (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`;
-      const gpuPct = (e) => e.gpu ?? 0;
+      const gpuFmt = isVram
+        ? (showSecondary ? (e) => `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%` : (e) => `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%`)
+        : (showSecondary ? (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}` : (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`);
+      const gpuPct = isVram
+        ? (e) => (s.gpu && s.gpu.vramTotal > 0 ? ((e.vram ?? 0) / s.gpu.vramTotal) * 100 : 0)
+        : (e) => e.gpu ?? 0;
       fillList(lists.stGpu, prepGpu, gpuFmt, gpuPct, "All gadgets idle");
       fillList(lists.detGpu, prepGpu, gpuFmt, gpuPct, "All gadgets idle");
     }

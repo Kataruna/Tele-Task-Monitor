@@ -90,9 +90,15 @@ interface HostApi {
   togglePin(name: string): void;
   hideProcess(name: string): void;
   unhideProcess(name: string): void;
-  prepareList(entries: AppEntry[], metric?: "cpu" | "mem" | "gpu"): Array<AppEntry & { _pinned: boolean }>;
+  prepareList(entries: AppEntry[], metric?: "cpu" | "mem" | "gpu", sortOverride?: "usage" | "vram"): Array<AppEntry & { _pinned: boolean }>;
   getFocusedProcess(): string | null;
   setFocusedProcess(name: string | null): void;
+  getGpuSort(): "usage" | "vram";
+  setGpuSort(sort: "usage" | "vram"): void;
+  toggleGpuSort(): "usage" | "vram";
+  getSecondaryMetrics(): boolean;
+  bindProcessRow(el: HTMLElement, getProcessName: () => string | string): void;
+  showProcessMenu(x: number, y: number, name: string): void;
   openThemeMenu(anchorEl: HTMLElement, ev?: MouseEvent): void;
   openSettings(ev?: MouseEvent): void;
   switchTheme(nextId?: string): void;
@@ -102,12 +108,14 @@ interface HostApi {
 ### Data Schemas
 ```ts
 interface UserSettings {
-  port: number;              // default 8800
-  defaultTheme: string;      // "nier" | "doraemon" | "default" | ...
-  overviewLimit: number;     // default 8 (1..25)
-  pageLimit: number;         // default 24 (1..60)
-  pinnedProcesses: string[]; // pinned to top of lists above separator
-  hiddenProcesses: string[]; // excluded from lists
+  port: number;                  // default 8800
+  defaultTheme: string;          // "nier" | "doraemon" | "default" | ...
+  overviewLimit: number;         // default 8 (1..25)
+  pageLimit: number;             // default 24 (1..60)
+  pinnedProcesses: string[];     // pinned to top of lists above separator
+  hiddenProcesses: string[];     // excluded from lists
+  gpuSort: "usage" | "vram";     // default "usage"
+  showSecondaryMetrics: boolean; // default false
 }
 
 interface InfoPayload {

@@ -24,6 +24,7 @@ export function mount(root, host) {
     statusText: $("status-text"),
     selfUsage: $("self-usage"),
     themeBtn: $("theme-btn"),
+    gpuSortBtn: $("default-gpu-sort-btn"),
     graphs: {
       cpu: $("cpu-graph"),
       ram: $("ram-graph"),
@@ -45,6 +46,21 @@ export function mount(root, host) {
 
   if (els.themeBtn) {
     els.themeBtn.addEventListener("click", (ev) => host.openThemeMenu(els.themeBtn, ev));
+  }
+
+  function updateDefaultGpuSortBtn() {
+    if (!els.gpuSortBtn) return;
+    const isVram = host.getGpuSort() === "vram";
+    els.gpuSortBtn.textContent = isVram ? "[VRAM]" : "[%]";
+  }
+
+  if (els.gpuSortBtn) {
+    els.gpuSortBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      host.toggleGpuSort();
+      updateDefaultGpuSortBtn();
+      if (lastSample) renderAllTopLists(lastSample);
+    });
   }
 
   function buildCores(n) {
@@ -70,30 +86,20 @@ export function mount(root, host) {
       const li = document.createElement("li");
       const nameWrap = document.createElement("span");
       nameWrap.className = "name";
+      const pinBadge = document.createElement("span");
+      pinBadge.className = "default-pin-badge";
+      pinBadge.innerHTML = `<svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor" aria-hidden="true"><line x1="8" y1="11.5" x2="8" y2="15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.5 2h7l-1 4v3.5l1.5 2H4l1.5-2V6L4.5 2z"/></svg>`;
+      pinBadge.hidden = true;
       const name = document.createElement("span");
       const cnt = document.createElement("span");
       cnt.className = "count";
-      nameWrap.append(name, cnt);
+      nameWrap.append(pinBadge, name, cnt);
 
       const rightWrap = document.createElement("span");
       rightWrap.className = "row-right";
       const value = document.createElement("span");
       value.className = "value";
-
-      const actions = document.createElement("span");
-      actions.className = "row-actions";
-      const pinBtn = document.createElement("button");
-      pinBtn.type = "button";
-      pinBtn.className = "row-act-btn";
-      pinBtn.textContent = "📌";
-      pinBtn.title = "Pin / Unpin process on top";
-      const hideBtn = document.createElement("button");
-      hideBtn.type = "button";
-      hideBtn.className = "row-act-btn";
-      hideBtn.textContent = "✕";
-      hideBtn.title = "Hide process";
-      actions.append(pinBtn, hideBtn);
-      rightWrap.append(value, actions);
+      rightWrap.appendChild(value);
 
       const meter = document.createElement("div");
       meter.className = "meter";
@@ -106,26 +112,25 @@ export function mount(root, host) {
       li.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (!entryName) return;
-        host.setFocusedProcess(entryName);
+        const cur = host.getFocusedProcess();
+        if (cur && cur.toLowerCase() === entryName.toLowerCase()) {
+          host.setFocusedProcess(null);
+        } else {
+          host.setFocusedProcess(entryName);
+        }
         if (lastSample) renderAllTopLists(lastSample);
       });
-      pinBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (entryName) host.togglePin(entryName);
-      });
-      hideBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (entryName) host.hideProcess(entryName);
-      });
+
+      host.bindProcessRow(li, () => entryName);
 
       listEl.appendChild(li);
       out.push({
         li,
+        pinBadge,
         name,
         count: cnt,
         value,
         bar,
-        pinBtn,
         setEntryName(n) {
           entryName = n;
         },
@@ -171,13 +176,13 @@ export function mount(root, host) {
       r.li.hidden = false;
       r.setEntryName(e.name);
       const pinned = Boolean(e._pinned);
-      r.name.textContent = pinned ? `📌 ${e.name}` : e.name;
+      r.pinBadge.hidden = !pinned;
+      r.name.textContent = e.name;
       r.count.textContent = e.count > 1 ? `×${e.count}` : "";
       r.value.textContent = fmtValue(e);
       r.bar.style.width = `${Math.max(0, Math.min(100, barPct(e))).toFixed(1)}%`;
       r.li.classList.toggle("is-pinned", pinned);
       r.li.classList.toggle("focused", Boolean(focused) && e.name.toLowerCase() === focused);
-      r.pinBtn.classList.toggle("active", pinned);
       if (pinned) lastPinnedIdx = i;
       visibleCount++;
     }
@@ -188,11 +193,33 @@ export function mount(root, host) {
   }
 
   function renderAllTopLists(s) {
+    const isVram = host.getGpuSort() === "vram";
+    updateDefaultGpuSortBtn();
+
     const prepCpu = host.prepareList(s.top.cpu || [], "cpu");
     const prepMem = host.prepareList(s.top.mem || [], "mem");
     const prepGpu = s.top.gpu === null ? null : host.prepareList(s.top.gpu || [], "gpu");
 
+    const focused = host.getFocusedProcess();
+    if (focused) {
+      const allNames = [...(s.top.cpu || []), ...(s.top.mem || []), ...(s.top.gpu || [])].map((e) => e.name.toLowerCase());
+      if (!allNames.includes(focused.toLowerCase()) && prepCpu[0]) {
+        host.setFocusedProcess(prepCpu[0].name);
+      }
+    }
+
     renderRows(rows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`, (e) => e.cpu, "—");
+    renderRows(rows.mem, prepMem, (e) => host.fmtBytes(e.mem), (e) => (ramTotal > 0 ? (e.mem / ramTotal) * 100 : 0), "—");
+    renderRows(
+      rows.gpu,
+      prepGpu,
+      isVram
+        ? (e) => `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%`
+        : (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`,
+      (e) => (isVram ? (s.gpu && s.gpu.vramTotal > 0 ? ((e.vram ?? 0) / s.gpu.vramTotal) * 100 : 0) : (e.gpu ?? 0)),
+      "—"
+    );
+  }
     renderRows(
       rows.mem,
       prepMem,

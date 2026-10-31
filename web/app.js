@@ -23,6 +23,8 @@ const state = {
     pageLimit: 24,
     pinnedProcesses: [],
     hiddenProcesses: [],
+    gpuSort: "usage",
+    showSecondaryMetrics: false,
   },
   themes: [
     { id: "nier", name: "Automata", bgColor: "#cdc8b0" },
@@ -366,29 +368,151 @@ function unhideProcess(name) {
   persistSettingsNow();
 }
 
-function prepareList(entries, metric = "cpu") {
+function prepareList(entries, metric = "cpu", sortOverride = null) {
   if (!Array.isArray(entries)) return [];
   const visible = entries
     .filter((e) => e && e.name && !isHidden(e.name))
     .map((e) => ({ ...e, _pinned: isPinned(e.name) }));
 
+  const gpuSort = sortOverride || state.settings.gpuSort || "usage";
   visible.sort((a, b) => {
     if (a._pinned !== b._pinned) return a._pinned ? -1 : 1;
     if (metric === "mem") {
       if (b.mem !== a.mem) return b.mem - a.mem;
     } else if (metric === "gpu") {
-      const ga = a.gpu ?? 0;
-      const gb = b.gpu ?? 0;
-      if (gb !== ga) return gb - ga;
-      const va = a.vram ?? 0;
-      const vb = b.vram ?? 0;
-      if (vb !== va) return vb - va;
+      if (gpuSort === "vram") {
+        const va = a.vram ?? 0;
+        const vb = b.vram ?? 0;
+        if (vb !== va) return vb - va;
+        const ga = a.gpu ?? 0;
+        const gb = b.gpu ?? 0;
+        if (gb !== ga) return gb - ga;
+      } else {
+        const ga = a.gpu ?? 0;
+        const gb = b.gpu ?? 0;
+        if (gb !== ga) return gb - ga;
+        const va = a.vram ?? 0;
+        const vb = b.vram ?? 0;
+        if (vb !== va) return vb - va;
+      }
     } else {
       if (b.cpu !== a.cpu) return b.cpu - a.cpu;
     }
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   });
   return visible;
+}
+
+const procMenuEl = document.getElementById("proc-context-menu");
+const procMenuTitle = document.getElementById("proc-menu-title");
+const procMenuPin = document.getElementById("proc-menu-pin");
+const procMenuPinLbl = document.getElementById("proc-menu-pin-lbl");
+const procMenuHide = document.getElementById("proc-menu-hide");
+
+let menuTargetProcess = null;
+
+function hideProcessMenu() {
+  if (procMenuEl) procMenuEl.hidden = true;
+  menuTargetProcess = null;
+}
+
+function showProcessMenu(x, y, procName) {
+  if (!procMenuEl || !procName) return;
+  menuTargetProcess = procName;
+  if (procMenuTitle) procMenuTitle.textContent = procName;
+  const pinned = isPinned(procName);
+  if (procMenuPinLbl) {
+    procMenuPinLbl.textContent = pinned ? "Unpin Process" : "Pin on Top";
+  }
+
+  procMenuEl.hidden = false;
+  const w = procMenuEl.offsetWidth || 150;
+  const h = procMenuEl.offsetHeight || 80;
+  const pad = 8;
+  const posX = Math.min(window.innerWidth - w - pad, Math.max(pad, x));
+  const posY = Math.min(window.innerHeight - h - pad, Math.max(pad, y));
+  procMenuEl.style.left = `${posX}px`;
+  procMenuEl.style.top = `${posY}px`;
+}
+
+if (procMenuPin) {
+  procMenuPin.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    if (menuTargetProcess) togglePin(menuTargetProcess);
+    hideProcessMenu();
+  });
+}
+
+if (procMenuHide) {
+  procMenuHide.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    if (menuTargetProcess) hideProcess(menuTargetProcess);
+    hideProcessMenu();
+  });
+}
+
+window.addEventListener("click", () => hideProcessMenu());
+window.addEventListener("scroll", () => hideProcessMenu(), { passive: true });
+window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") hideProcessMenu();
+});
+
+function bindProcessRow(el, getProcessName) {
+  if (!el) return;
+  let timer = null;
+  let startX = 0;
+  let startY = 0;
+  let triggered = false;
+
+  const cancelHold = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  el.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0 && ev.pointerType === "mouse") return;
+    const name = typeof getProcessName === "function" ? getProcessName() : getProcessName;
+    if (!name) return;
+    triggered = false;
+    startX = ev.clientX;
+    startY = ev.clientY;
+    cancelHold();
+    timer = setTimeout(() => {
+      triggered = true;
+      showProcessMenu(ev.clientX, ev.clientY, name);
+    }, 450);
+  });
+
+  el.addEventListener("pointermove", (ev) => {
+    if (!timer) return;
+    const dx = Math.abs(ev.clientX - startX);
+    const dy = Math.abs(ev.clientY - startY);
+    if (dx > 10 || dy > 10) {
+      cancelHold();
+    }
+  });
+
+  el.addEventListener("pointerup", cancelHold);
+  el.addEventListener("pointercancel", cancelHold);
+
+  el.addEventListener("contextmenu", (ev) => {
+    const name = typeof getProcessName === "function" ? getProcessName() : getProcessName;
+    if (!name) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    cancelHold();
+    showProcessMenu(ev.clientX, ev.clientY, name);
+  });
+
+  el.addEventListener("click", (ev) => {
+    if (triggered) {
+      ev.stopPropagation();
+      ev.preventDefault();
+      triggered = false;
+    }
+  }, true);
 }
 
 function renderSettingsProcessTags() {
@@ -402,7 +526,7 @@ function renderSettingsProcessTags() {
     if (draftPinned.length === 0) {
       const span = document.createElement("span");
       span.className = "settings-tag-empty";
-      span.textContent = "No pinned processes — click 📌 on any process row to pin it on top.";
+      span.textContent = "No pinned processes — press and hold any process row to pin it.";
       setPinnedListEl.appendChild(span);
     } else {
       for (const name of draftPinned) {
@@ -410,7 +534,7 @@ function renderSettingsProcessTags() {
         btn.type = "button";
         btn.className = "settings-tag";
         btn.title = `Click to unpin ${name}`;
-        btn.innerHTML = `<span>📌 ${name}</span><span class="tag-x">✕</span>`;
+        btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="11.5" x2="8" y2="15"></line><path d="M4.5 2h7l-1 4v3.5l1.5 2H4l1.5-2V6L4.5 2z"></path></svg>${name}</span><span class="tag-x">✕</span>`;
         btn.addEventListener("click", () => {
           draftPinned = draftPinned.filter((p) => p.toLowerCase() !== name.toLowerCase());
           renderSettingsProcessTags();
@@ -425,7 +549,7 @@ function renderSettingsProcessTags() {
     if (draftHidden.length === 0) {
       const span = document.createElement("span");
       span.className = "settings-tag-empty";
-      span.textContent = "No hidden processes — click ✕ on any process row to hide it.";
+      span.textContent = "No hidden processes — press and hold any process row to hide it.";
       setHiddenListEl.appendChild(span);
     } else {
       for (const name of draftHidden) {
@@ -436,6 +560,13 @@ function renderSettingsProcessTags() {
         btn.innerHTML = `<span>${name}</span><span class="tag-x">✕</span>`;
         btn.addEventListener("click", () => {
           draftHidden = draftHidden.filter((p) => p.toLowerCase() !== name.toLowerCase());
+          renderSettingsProcessTags();
+        });
+        setHiddenListEl.appendChild(btn);
+      }
+    }
+  }
+}
           renderSettingsProcessTags();
         });
         setHiddenListEl.appendChild(btn);
@@ -456,6 +587,8 @@ if (setClearHiddenBtn) {
     renderSettingsProcessTags();
   });
 }
+
+const setSecMetricsEl = document.getElementById("set-secondary-metrics");
 
 function showSettingsStatus(msg, isError = false) {
   if (!settingsStatusEl) return;
@@ -486,6 +619,7 @@ function openSettingsModal() {
   if (setOvLimitEl) setOvLimitEl.value = String(state.settings.overviewLimit || 8);
   if (setPageLimitEl) setPageLimitEl.value = String(state.settings.pageLimit || 24);
   if (setPortEl) setPortEl.value = String(state.settings.port || 8800);
+  if (setSecMetricsEl) setSecMetricsEl.checked = Boolean(state.settings.showSecondaryMetrics);
   draftPinned = Array.isArray(state.settings.pinnedProcesses) ? [...state.settings.pinnedProcesses] : [];
   draftHidden = Array.isArray(state.settings.hiddenProcesses) ? [...state.settings.hiddenProcesses] : [];
   renderSettingsProcessTags();
@@ -523,6 +657,7 @@ if (settingsResetBtn) {
     if (setOvLimitEl) setOvLimitEl.value = "8";
     if (setPageLimitEl) setPageLimitEl.value = "24";
     if (setPortEl) setPortEl.value = "8800";
+    if (setSecMetricsEl) setSecMetricsEl.checked = false;
     draftPinned = [];
     draftHidden = [];
     renderSettingsProcessTags();
@@ -541,6 +676,8 @@ if (settingsForm) {
       pageLimit: Math.max(1, Math.min(60, Number(setPageLimitEl.value) || 24)),
       pinnedProcesses: draftPinned,
       hiddenProcesses: draftHidden,
+      gpuSort: state.settings.gpuSort || "usage",
+      showSecondaryMetrics: Boolean(setSecMetricsEl && setSecMetricsEl.checked),
     };
 
     showSettingsStatus("Saving settings…");
@@ -601,6 +738,21 @@ const hostApi = {
   setFocusedProcess: (name) => {
     state.focusedProcess = name || null;
   },
+  getGpuSort: () => state.settings.gpuSort || "usage",
+  setGpuSort: (sort) => {
+    state.settings.gpuSort = sort === "vram" ? "vram" : "usage";
+    notifyThemeUpdate();
+    persistSettingsNow();
+  },
+  toggleGpuSort: () => {
+    state.settings.gpuSort = state.settings.gpuSort === "vram" ? "usage" : "vram";
+    notifyThemeUpdate();
+    persistSettingsNow();
+    return state.settings.gpuSort;
+  },
+  getSecondaryMetrics: () => Boolean(state.settings.showSecondaryMetrics),
+  bindProcessRow,
+  showProcessMenu,
   openSettings: (ev) => {
     if (ev) ev.stopPropagation();
     openSettingsModal();

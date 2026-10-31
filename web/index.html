@@ -72,6 +72,16 @@
 
         <div class="settings-row">
           <div class="settings-label-col">
+            <label for="set-secondary-metrics">Show Secondary Metrics</label>
+            <span class="settings-hint">Display RAM alongside CPU, and CPU alongside RAM in detail views</span>
+          </div>
+          <div class="settings-input-col">
+            <input type="checkbox" id="set-secondary-metrics" class="settings-checkbox">
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label-col">
             <label for="set-port">Server Port</label>
             <span class="settings-hint">TCP port for PC &amp; iPad connections (1024–65535)</span>
           </div>
@@ -113,6 +123,25 @@
         </div>
       </form>
     </div>
+  </div>
+
+  <!-- Shared Process Context Popover (Hold / Right-Click) -->
+  <div id="proc-context-menu" class="proc-context-menu" hidden>
+    <div class="proc-menu-header" id="proc-menu-title">Process</div>
+    <button type="button" class="proc-menu-item" id="proc-menu-pin">
+      <svg class="menu-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="8" y1="11.5" x2="8" y2="15"></line>
+        <path d="M4.5 2h7l-1 4v3.5l1.5 2H4l1.5-2V6L4.5 2z"></path>
+      </svg>
+      <span id="proc-menu-pin-lbl">Pin Process</span>
+    </button>
+    <button type="button" class="proc-menu-item danger" id="proc-menu-hide">
+      <svg class="menu-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <line x1="3.5" y1="3.5" x2="12.5" y2="12.5"></line>
+        <line x1="12.5" y1="3.5" x2="3.5" y2="12.5"></line>
+      </svg>
+      <span>Hide Process</span>
+    </button>
   </div>
 
   <script type="module" src="app.js"></script>

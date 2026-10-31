@@ -14,6 +14,8 @@ pub struct UserSettings {
     pub page_limit: usize,
     pub pinned_processes: Vec<String>,
     pub hidden_processes: Vec<String>,
+    pub gpu_sort: String,
+    pub show_secondary_metrics: bool,
 }
 
 impl Default for UserSettings {
@@ -25,6 +27,8 @@ impl Default for UserSettings {
             page_limit: 24,
             pinned_processes: Vec::new(),
             hidden_processes: Vec::new(),
+            gpu_sort: "usage".to_string(),
+            show_secondary_metrics: false,
         }
     }
 }
@@ -47,6 +51,9 @@ impl UserSettings {
         self.page_limit = self.page_limit.clamp(1, 60);
         self.pinned_processes.retain(|s| !s.trim().is_empty());
         self.hidden_processes.retain(|s| !s.trim().is_empty());
+        if self.gpu_sort != "vram" {
+            self.gpu_sort = "usage".to_string();
+        }
         self
     }
 }
@@ -67,7 +74,7 @@ impl SettingsStore {
             .unwrap_or_default()
             .sanitize();
         crate::aggregate::set_top_n(settings.page_limit.max(settings.overview_limit));
-        crate::aggregate::set_process_prefs(&settings.pinned_processes, &settings.hidden_processes);
+        crate::aggregate::set_process_prefs(&settings.pinned_processes, &settings.hidden_processes, Some(&settings.gpu_sort));
         Self {
             inner: Arc::new(RwLock::new(settings)),
             path,
@@ -104,7 +111,7 @@ impl SettingsStore {
     pub fn update(&self, next: UserSettings) -> Result<UserSettings, String> {
         let clean = next.sanitize();
         crate::aggregate::set_top_n(clean.page_limit.max(clean.overview_limit));
-        crate::aggregate::set_process_prefs(&clean.pinned_processes, &clean.hidden_processes);
+        crate::aggregate::set_process_prefs(&clean.pinned_processes, &clean.hidden_processes, Some(&clean.gpu_sort));
         if let Some(p) = &self.path {
             let json = serde_json::to_string_pretty(&clean).map_err(|e| e.to_string())?;
             if let Err(e) = std::fs::write(p, json) {
@@ -129,6 +136,8 @@ mod tests {
             page_limit: 999,
             pinned_processes: vec!["game.exe".into(), " ".into()],
             hidden_processes: vec![],
+            gpu_sort: "invalid".into(),
+            show_secondary_metrics: false,
         };
         let clean = raw.sanitize();
         assert_eq!(clean.port, 8800);
@@ -136,6 +145,8 @@ mod tests {
         assert_eq!(clean.overview_limit, 1);
         assert_eq!(clean.page_limit, 60);
         assert_eq!(clean.pinned_processes, vec!["game.exe"]);
+        assert_eq!(clean.gpu_sort, "usage");
+        assert!(!clean.show_secondary_metrics);
     }
 
     #[test]
@@ -149,12 +160,16 @@ mod tests {
                 page_limit: 30,
                 pinned_processes: vec![],
                 hidden_processes: vec![],
+                gpu_sort: "vram".into(),
+                show_secondary_metrics: true,
             })
             .unwrap();
         assert_eq!(updated.port, 8899);
         assert_eq!(updated.default_theme, "doraemon");
         assert_eq!(updated.overview_limit, 6);
         assert_eq!(updated.page_limit, 30);
+        assert_eq!(updated.gpu_sort, "vram");
+        assert!(updated.show_secondary_metrics);
         assert_eq!(store.get(), updated);
     }
 }

@@ -49,6 +49,9 @@ export function mount(root, host) {
     ovListMem: $("ov-list-mem"),
     ovListGpu: $("ov-list-gpu"),
     sortName: $("nier-sort-name"),
+    ovGpuSortBtn: $("nier-ov-gpu-sort"),
+    singleGpuSortBtn: $("nier-single-gpu-sort"),
+    intelGpuSortBtn: $("nier-intel-gpu-sort"),
     chipList: $("nier-chip-list"),
     sbThumb: root.querySelector(".nier-scrollbar .sb-thumb"),
     stackMode: $("nier-stack-mode"),
@@ -112,11 +115,36 @@ export function mount(root, host) {
       els.singleLeft.hidden = isOverview;
       if (tabId === "cpu") els.sortName.textContent = "CPU";
       else if (tabId === "mem") els.sortName.textContent = "Memory";
-      else if (tabId === "gpu") els.sortName.textContent = "GPU / VRAM";
+      else if (tabId === "gpu") els.sortName.textContent = "GPU";
     }
 
+    updateGpuSortLabels();
     if (lastSample) renderSample(lastSample);
   }
+
+  function updateGpuSortLabels(sort = null) {
+    const cur = sort || host.getGpuSort();
+    const isVram = cur === "vram";
+    if (els.ovGpuSortBtn) els.ovGpuSortBtn.textContent = isVram ? "[VRAM]" : "[%]";
+    if (els.singleGpuSortBtn) {
+      els.singleGpuSortBtn.textContent = isVram ? "[Sort: VRAM]" : "[Sort: %]";
+      els.singleGpuSortBtn.hidden = activeTab !== "gpu";
+    }
+    if (els.intelGpuSortBtn) els.intelGpuSortBtn.textContent = isVram ? "[Sort: VRAM]" : "[Sort: %]";
+  }
+
+  const onToggleGpuSort = (ev) => {
+    if (ev) {
+      ev.stopPropagation();
+      ev.preventDefault();
+    }
+    const next = host.toggleGpuSort();
+    updateGpuSortLabels(next);
+    if (lastSample) renderSample(lastSample);
+  };
+  if (els.ovGpuSortBtn) els.ovGpuSortBtn.addEventListener("click", onToggleGpuSort);
+  if (els.singleGpuSortBtn) els.singleGpuSortBtn.addEventListener("click", onToggleGpuSort);
+  if (els.intelGpuSortBtn) els.intelGpuSortBtn.addEventListener("click", onToggleGpuSort);
 
   for (const b of tabBtns) {
     b.addEventListener("click", () => setTab(b.dataset.tab));
@@ -258,7 +286,7 @@ export function mount(root, host) {
       icon.className = "chip-icon";
       const pinBadge = document.createElement("span");
       pinBadge.className = "chip-pin-badge";
-      pinBadge.textContent = "📌";
+      pinBadge.innerHTML = `<svg viewBox="0 0 16 16" width="10" height="10" fill="currentColor" aria-hidden="true"><line x1="8" y1="11.5" x2="8" y2="15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4.5 2h7l-1 4v3.5l1.5 2H4l1.5-2V6L4.5 2z"/></svg>`;
       pinBadge.hidden = true;
       const name = document.createElement("span");
       name.className = "chip-name";
@@ -273,22 +301,8 @@ export function mount(root, host) {
       right.className = "chip-right";
       const cost = document.createElement("span");
       cost.className = "chip-cost";
+      right.append(cost);
 
-      const actions = document.createElement("span");
-      actions.className = "chip-actions";
-      const pinBtn = document.createElement("button");
-      pinBtn.type = "button";
-      pinBtn.className = "chip-act-btn";
-      pinBtn.textContent = "📌";
-      pinBtn.title = "Pin / Unpin process on top";
-      const hideBtn = document.createElement("button");
-      hideBtn.type = "button";
-      hideBtn.className = "chip-act-btn";
-      hideBtn.textContent = "✕";
-      hideBtn.title = "Hide process";
-      actions.append(pinBtn, hideBtn);
-
-      right.append(cost, actions);
       li.append(left, right);
       li.hidden = true;
 
@@ -296,17 +310,16 @@ export function mount(root, host) {
       li.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (!rowEntryName) return;
-        host.setFocusedProcess(rowEntryName);
+        const cur = host.getFocusedProcess();
+        if (cur && cur.toLowerCase() === rowEntryName.toLowerCase()) {
+          host.setFocusedProcess(null);
+        } else {
+          host.setFocusedProcess(rowEntryName);
+        }
         if (lastSample) renderSample(lastSample);
       });
-      pinBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (rowEntryName) host.togglePin(rowEntryName);
-      });
-      hideBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (rowEntryName) host.hideProcess(rowEntryName);
-      });
+
+      host.bindProcessRow(li, () => rowEntryName);
 
       listEl.appendChild(li);
       out.push({
@@ -315,7 +328,6 @@ export function mount(root, host) {
         name,
         count: cnt,
         cost,
-        pinBtn,
         setEntryName(n) {
           rowEntryName = n;
         },
@@ -372,7 +384,7 @@ export function mount(root, host) {
 
   rebuildAllLists();
 
-  function resolveFocusedIndex(entries, visibleCount) {
+  function resolveFocusedIndex(entries, visibleCount, isPrimaryActive = false) {
     if (visibleCount <= 0 || !entries || entries.length === 0) return -1;
     const focused = host.getFocusedProcess();
     if (focused) {
@@ -382,11 +394,16 @@ export function mount(root, host) {
           return i;
         }
       }
+      if (isPrimaryActive && entries[0]) {
+        host.setFocusedProcess(entries[0].name);
+        return 0;
+      }
+      return -1;
     }
-    return 0;
+    return -1;
   }
 
-  function fillChipRows(rows, entries, fmtCost) {
+  function fillChipRows(rows, entries, fmtCost, isPrimaryActive = false) {
     let visibleCount = 0;
     let lastPinnedIdx = -1;
     for (let i = 0; i < rows.length; i++) {
@@ -406,16 +423,14 @@ export function mount(root, host) {
       const pinned = Boolean(e._pinned);
       r.pinBadge.hidden = !pinned;
       r.li.classList.toggle("is-pinned", pinned);
-      r.pinBtn.classList.toggle("active", pinned);
-      r.pinBtn.title = pinned ? `Unpin ${e.name}` : `Pin ${e.name} on top`;
       if (pinned) lastPinnedIdx = i;
       visibleCount++;
     }
 
     const hasNormalAfterPinned = lastPinnedIdx >= 0 && lastPinnedIdx < visibleCount - 1;
-    const activeIdx = resolveFocusedIndex(entries, visibleCount);
+    const activeIdx = resolveFocusedIndex(entries, visibleCount, isPrimaryActive);
     for (let i = 0; i < rows.length; i++) {
-      rows[i].li.classList.toggle("selected", i === activeIdx);
+      rows[i].li.classList.toggle("selected", activeIdx >= 0 && i === activeIdx);
       rows[i].li.classList.toggle("pinned-separator", hasNormalAfterPinned && i === lastPinnedIdx);
     }
     return { visibleCount, activeIdx };
@@ -438,17 +453,23 @@ export function mount(root, host) {
     const prepMem = host.prepareList(s.top.mem || [], "mem");
     const prepGpu = host.prepareList(s.top.gpu || [], "gpu");
 
+    const gpuSort = host.getGpuSort();
+    const showSecondary = host.getSecondaryMetrics();
+
     // Overview Left Brief Boxes
     els.ovHeadCpu.textContent = `${s.cpu.usage.toFixed(1)}% Total`;
     els.ovHeadMem.textContent = `${ramUsedGB} / ${ramTotalGB} GB`;
-    els.ovHeadGpu.textContent = s.gpu ? `${s.gpu.usage.toFixed(1)}% · ${vramUsedGB}G` : "Unavailable";
+    els.ovHeadGpu.textContent = s.gpu
+      ? (gpuSort === "vram" ? `${vramUsedGB} / ${vramTotalGB} GB` : `${s.gpu.usage.toFixed(1)}% · ${vramUsedGB}G`)
+      : "Unavailable";
 
-    fillChipRows(ovRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`);
-    fillChipRows(ovRows.mem, prepMem, (e) => host.fmtBytes(e.mem));
+    fillChipRows(ovRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`, activeTab === "overview");
+    fillChipRows(ovRows.mem, prepMem, (e) => host.fmtBytes(e.mem), false);
     fillChipRows(
       ovRows.gpu,
       prepGpu,
-      (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`
+      (e) => (gpuSort === "vram" ? `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%` : `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`),
+      false
     );
 
     // Right Status Card
@@ -484,27 +505,36 @@ export function mount(root, host) {
     }
 
     // Populate Intel all-3 view
-    fillChipRows(intelRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`);
-    fillChipRows(intelRows.mem, prepMem, (e) => host.fmtBytes(e.mem));
+    fillChipRows(intelRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`, activeTab === "intel");
+    fillChipRows(intelRows.mem, prepMem, (e) => host.fmtBytes(e.mem), false);
     fillChipRows(
       intelRows.gpu,
       prepGpu,
-      (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`
+      (e) => (gpuSort === "vram" ? `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%` : `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`),
+      false
     );
 
     // Populate Single-Resource view & Central Capacity Bar
     let stackList = prepCpu;
-    let fmtSingle = (e) => `${e.cpu.toFixed(1)}% · ${host.fmtBytes(e.mem)}`;
+    let fmtSingle = showSecondary
+      ? (e) => `${e.cpu.toFixed(1)}% · ${host.fmtBytes(e.mem)}`
+      : (e) => `${e.cpu.toFixed(1)}%`;
 
     if (activeTab === "mem") {
       stackList = prepMem;
-      fmtSingle = (e) => `${host.fmtBytes(e.mem)} · ${e.cpu.toFixed(1)}%`;
+      fmtSingle = showSecondary
+        ? (e) => `${host.fmtBytes(e.mem)} · ${e.cpu.toFixed(1)}%`
+        : (e) => `${host.fmtBytes(e.mem)}`;
     } else if (activeTab === "gpu") {
       stackList = prepGpu;
-      fmtSingle = (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`;
+      fmtSingle = (e) =>
+        gpuSort === "vram"
+          ? `${host.fmtBytes(e.vram ?? 0)}${showSecondary ? ` · ${(e.gpu ?? 0).toFixed(1)}%` : ""}`
+          : `${(e.gpu ?? 0).toFixed(1)}%${showSecondary ? ` · ${host.fmtBytes(e.vram ?? 0)}` : ""}`;
     }
 
-    const { visibleCount: fitCount, activeIdx } = fillChipRows(singleRows, stackList, fmtSingle);
+    const isSingleActive = activeTab === "cpu" || activeTab === "mem" || activeTab === "gpu";
+    const { visibleCount: fitCount, activeIdx } = fillChipRows(singleRows, stackList, fmtSingle, isSingleActive);
     updateCustomScrollbar();
 
     renderCentralStack(s, ramPct, gpuUsage, vramPct, stackList, fitCount, activeIdx);
@@ -588,11 +618,11 @@ export function mount(root, host) {
         if (els.stackMode) els.stackMode.textContent = "RAM";
         if (els.stackPct) els.stackPct.textContent = `${ramPct.toFixed(0)}%`;
       } else if (activeTab === "gpu") {
-        const useVram = vramPct > gpuUsage && s.gpu && s.gpu.vramTotal > 0;
+        const useVram = host.getGpuSort() === "vram";
         totalTargetPct = useVram ? vramPct : gpuUsage;
         valOf = (e) =>
           useVram
-            ? ((e.vram ?? 0) / s.gpu.vramTotal) * 100
+            ? ((e.vram ?? 0) / Math.max(1, s.gpu ? s.gpu.vramTotal : 1)) * 100
             : e.gpu ?? 0;
         lblOf = (e) =>
           useVram
@@ -660,6 +690,7 @@ export function mount(root, host) {
     let cumFromTopOfStack = 0;
     let pointerTopPct = 100 - totalStackPct / 2;
 
+    let hasActiveSlice = false;
     for (let i = 0; i < items.length && i < stackSlices.length; i++) {
       const it = items[i];
       const slot = stackSlices[i];
@@ -670,12 +701,18 @@ export function mount(root, host) {
       if (it.procName) slot.el.dataset.procName = it.procName;
       if (it.active) {
         pointerTopPct = 100 - totalStackPct + cumFromTopOfStack + it.h / 2;
+        hasActiveSlice = true;
       }
       cumFromTopOfStack += it.h;
     }
 
     if (els.stackPointer) {
-      els.stackPointer.style.top = `${Math.max(8, Math.min(96, pointerTopPct)).toFixed(1)}%`;
+      if (activeTab === "overview" || hasActiveSlice) {
+        els.stackPointer.style.display = "flex";
+        els.stackPointer.style.top = `${Math.max(8, Math.min(96, pointerTopPct)).toFixed(1)}%`;
+      } else {
+        els.stackPointer.style.display = "none";
+      }
     }
   }
 

@@ -172,8 +172,10 @@
   display: none !important;
 }
 .dark-shell .top li:first-child { border-top: 0; }
-.dark-shell .top li:hover {
-  background: rgba(255, 255, 255, 0.04);
+@media (hover: hover) {
+  .dark-shell .top li:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
 }
 .dark-shell .top li.is-pinned {
   background: rgba(76, 194, 255, 0.09);
@@ -187,31 +189,43 @@
   margin-bottom: 5px;
   padding-bottom: 6px;
 }
-.dark-shell .top .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dark-shell .top .count { color: var(--dim); font-size: 11px; margin-left: 4px; }
+.dark-shell .top .name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dark-shell .top .default-pin-badge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--cpu);
+  flex-shrink: 0;
+}
+.dark-shell .top .default-pin-badge[hidden] {
+  display: none !important;
+}
+.dark-shell .top .count { color: var(--dim); font-size: 11px; }
 .dark-shell .top .row-right { display: inline-flex; align-items: center; gap: 6px; }
 .dark-shell .top .value { font-weight: 700; font-variant-numeric: tabular-nums; }
-.dark-shell .top .row-actions { display: inline-flex; gap: 2px; opacity: 0.3; }
-.dark-shell .top li:hover .row-actions,
-.dark-shell .top li.focused .row-actions,
-.dark-shell .top li.is-pinned .row-actions { opacity: 1; }
-@media (hover: none), (pointer: coarse) {
-  .dark-shell .top .row-actions { opacity: 0.85; }
-}
-.dark-shell .top .row-act-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text);
-  font-size: 10.5px;
-  line-height: 1;
-  padding: 2px 4px;
+.default-gpu-sort-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--dim);
+  color: var(--gpu);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
   border-radius: 3px;
   cursor: pointer;
+  margin-left: 6px;
+  line-height: 1.1;
+  vertical-align: middle;
 }
-.dark-shell .top .row-act-btn:hover,
-.dark-shell .top .row-act-btn.active {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--dim);
+.default-gpu-sort-btn:hover {
+  background: rgba(94, 224, 138, 0.18);
+  border-color: var(--gpu);
 }
 .dark-shell .top .meter { grid-column: 1 / -1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .dark-shell .top .meter i { display: block; height: 100%; }

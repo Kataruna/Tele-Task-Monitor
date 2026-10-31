@@ -624,8 +624,10 @@
   display: none !important;
 }
 .dora-list li:first-child { border-top: none; }
-.dora-list li:hover {
-  background: rgba(236, 208, 130, 0.45);
+@media (hover: hover) {
+  .dora-list li:hover {
+    background: rgba(236, 208, 130, 0.45);
+  }
 }
 .dora-list li.is-pinned {
   background: rgba(244, 129, 22, 0.14);
@@ -644,11 +646,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dora-pin-badge {
+  display: inline-flex;
+  align-items: center;
+  color: #c94a29;
+  flex-shrink: 0;
+}
+.dora-pin-badge[hidden] {
+  display: none !important;
 }
 .dora-list .app-count {
   font-size: 10.5px;
   color: var(--dora-brown-soft);
-  margin-left: 3px;
   font-weight: 600;
 }
 .dora-list .app-right {
@@ -661,35 +674,24 @@
   font-variant-numeric: tabular-nums;
   color: #7c3800;
 }
-.dora-list .app-actions {
-  display: inline-flex;
-  gap: 2px;
-  opacity: 0.35;
-}
-.dora-list li:hover .app-actions,
-.dora-list li.focused .app-actions,
-.dora-list li.is-pinned .app-actions {
-  opacity: 1;
-}
-@media (hover: none), (pointer: coarse) {
-  .dora-list .app-actions {
-    opacity: 0.85;
-  }
-}
-.dora-list .app-act-btn {
-  background: transparent;
-  border: 1px solid transparent;
+.dora-gpu-sort-btn {
+  background: #fff;
+  border: 1.5px solid var(--dora-brown-line);
   color: var(--dora-brown-text);
-  font-size: 10px;
-  line-height: 1;
-  padding: 2px 3px;
-  border-radius: 3px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 4px;
   cursor: pointer;
+  margin-left: 6px;
+  line-height: 1.1;
+  vertical-align: middle;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
-.dora-list .app-act-btn:hover,
-.dora-list .app-act-btn.active {
-  background: rgba(131, 77, 30, 0.2);
-  border-color: var(--dora-ribbon);
+.dora-gpu-sort-btn:hover {
+  background: #f7e6b5;
+  border-color: #7c3800;
 }
 .dora-list .app-bar {
   grid-column: 1 / -1;

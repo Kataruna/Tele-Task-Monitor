@@ -75,7 +75,10 @@
 
         <div class="nier-brief-box">
           <div class="brief-head" data-jump="gpu" title="Tap header to open full GPU view">
-            <span>❖ Plug-in Chips: GPU ▸</span>
+            <span class="brief-title-wrap">
+              <span>❖ Plug-in Chips: GPU ▸</span>
+              <button type="button" class="nier-gpu-sort-btn" id="nier-ov-gpu-sort" title="Toggle GPU Sort: Usage % vs VRAM">[%]</button>
+            </span>
             <span id="ov-head-gpu">0.0%</span>
           </div>
           <ol id="ov-list-gpu" class="nier-chip-list compact"></ol>
@@ -85,7 +88,7 @@
       <!-- SINGLE-RESOURCE PANEL (shown on CPU / MEMORY / GPU tabs) -->
       <div class="nier-chip-panel" id="nier-single-left" hidden>
         <div class="nier-sort-header">
-          <span class="sort-label">⇅ Active Category: <strong id="nier-sort-name">CPU</strong></span>
+          <span class="sort-label">⇅ Category: <strong id="nier-sort-name">CPU</strong> <button type="button" class="nier-gpu-sort-btn" id="nier-single-gpu-sort" hidden title="Toggle GPU Sort: Usage % vs VRAM">[Sort: %]</button></span>
           <button type="button" id="nier-inline-back" class="nier-back-pill">◁ Overview</button>
         </div>
         <ol id="nier-chip-list" class="nier-chip-list"></ol>
@@ -229,7 +232,10 @@
       <ol id="nier-intel-mem" class="nier-chip-list"></ol>
     </div>
     <div class="nier-chip-panel intel-col">
-      <div class="nier-status-header">Plug-in Chips: GPU</div>
+      <div class="nier-status-header">
+        <span>Plug-in Chips: GPU</span>
+        <button type="button" class="nier-gpu-sort-btn" id="nier-intel-gpu-sort" title="Toggle GPU Sort: Usage % vs VRAM">[Sort: %]</button>
+      </div>
       <ol id="nier-intel-gpu" class="nier-chip-list"></ol>
     </div>
   </section>
