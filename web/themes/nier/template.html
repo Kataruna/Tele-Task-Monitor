@@ -1,0 +1,259 @@
+<div class="nier-screen">
+  <!-- Background geometric drafting lines & circles (SVG) -->
+  <svg class="nier-bg-lines" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
+    <circle cx="260" cy="180" r="310" />
+    <circle cx="260" cy="180" r="318" />
+    <circle cx="1420" cy="540" r="460" />
+    <line x1="120" y1="0" x2="780" y2="900" />
+    <line x1="690" y1="0" x2="1180" y2="900" />
+    <line x1="0" y1="540" x2="1600" y2="210" />
+  </svg>
+
+  <!-- Top Navigation & Decorative YoRHa Rule -->
+  <header class="nier-header">
+    <div class="nier-nav-row">
+      <div class="nier-left-bars" aria-hidden="true"><span></span><span></span></div>
+      <nav class="nier-tabs" role="tablist" aria-label="YoRHa System Navigation">
+        <button type="button" class="nier-tab active" data-tab="overview" role="tab" aria-selected="true">
+          <span class="tab-icon">▣</span> OVERVIEW
+        </button>
+        <button type="button" class="nier-tab" data-tab="cpu" role="tab" aria-selected="false">
+          <span class="tab-icon">◈</span> CPU
+        </button>
+        <button type="button" class="nier-tab" data-tab="mem" role="tab" aria-selected="false">
+          <span class="tab-icon">▤</span> MEMORY
+        </button>
+        <button type="button" class="nier-tab" data-tab="gpu" role="tab" aria-selected="false">
+          <span class="tab-icon">❖</span> GPU / VRAM
+        </button>
+        <button type="button" class="nier-tab" data-tab="intel" role="tab" aria-selected="false">
+          <span class="tab-icon">☷</span> INTEL
+        </button>
+        <button type="button" class="nier-tab" id="nier-settings-tab" title="Open System Settings">
+          <span class="tab-icon">⚙</span> SYSTEM
+        </button>
+      </nav>
+    </div>
+    <div class="nier-rule top-rule" aria-hidden="true"></div>
+  </header>
+
+  <!-- Title & Storage Used Row -->
+  <section class="nier-title-bar">
+    <div class="nier-title-left">
+      <h1 class="nier-h1" id="nier-main-title">OVERVIEW</h1>
+      <span class="nier-subtitle" id="nier-sub-title">- Plug-in Chips: All-System Telemetry Brief</span>
+      <button type="button" id="nier-title-back" class="nier-back-pill" hidden>◁ Back to Overview</button>
+    </div>
+    <div class="nier-storage-banner">
+      <span id="nier-storage-label">System Load :</span>
+      <strong id="nier-storage-val">CPU 0% · RAM 0% · GPU 0%</strong>
+    </div>
+  </section>
+
+  <!-- ==================== MAIN 3-COLUMN YORHA WORKSPACE ==================== -->
+  <section class="nier-workspace" id="nier-main-view">
+    <div class="nier-col-left">
+      <div class="nier-left-rail" aria-hidden="true"></div>
+
+      <!-- OVERVIEW BRIEF PANEL: CPU, Memory, and GPU all visible together -->
+      <div class="nier-overview-left" id="nier-overview-left">
+        <div class="nier-brief-box" data-jump="cpu" title="Tap to view full CPU list">
+          <div class="brief-head">
+            <span>◈ Plug-in Chips: CPU</span>
+            <span id="ov-head-cpu">0.0%</span>
+          </div>
+          <ol id="ov-list-cpu" class="nier-chip-list compact"></ol>
+        </div>
+
+        <div class="nier-brief-box" data-jump="mem" title="Tap to view full Memory list">
+          <div class="brief-head">
+            <span>▤ Plug-in Chips: Memory</span>
+            <span id="ov-head-mem">0.0 GB</span>
+          </div>
+          <ol id="ov-list-mem" class="nier-chip-list compact"></ol>
+        </div>
+
+        <div class="nier-brief-box" data-jump="gpu" title="Tap to view full GPU list">
+          <div class="brief-head">
+            <span>❖ Plug-in Chips: GPU</span>
+            <span id="ov-head-gpu">0.0%</span>
+          </div>
+          <ol id="ov-list-gpu" class="nier-chip-list compact"></ol>
+        </div>
+      </div>
+
+      <!-- SINGLE-RESOURCE PANEL (shown on CPU / MEMORY / GPU tabs) -->
+      <div class="nier-chip-panel" id="nier-single-left" hidden>
+        <div class="nier-sort-header">
+          <span class="sort-label">⇅ Active Category: <strong id="nier-sort-name">CPU</strong></span>
+          <button type="button" id="nier-inline-back" class="nier-back-pill">◁ Overview</button>
+        </div>
+        <ol id="nier-chip-list" class="nier-chip-list"></ol>
+        <div class="nier-scrollbar" aria-hidden="true">
+          <span class="sb-dot top"></span>
+          <div class="sb-track"><div class="sb-thumb"></div></div>
+          <span class="sb-dot bot"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Column: Iconic Vertical Plug-in Chip Capacity Stack + 4 Live 60s Waves -->
+    <div class="nier-col-center">
+      <div class="nier-stack-wrap">
+        <div class="nier-stack-pointer" id="nier-stack-pointer" aria-hidden="true">
+          <span class="ptr-diamond">◆</span><span class="ptr-dots">:</span>
+        </div>
+        <div class="nier-stack-frame" title="Plug-in Chip Allocation Stack">
+          <div class="nier-stack-head">
+            <span id="nier-stack-mode">SYS</span>
+            <strong id="nier-stack-pct">0%</strong>
+          </div>
+          <div id="nier-stack-bars" class="nier-stack-bars"></div>
+        </div>
+      </div>
+
+      <!-- 4 Live 60-Second Telemetry Waves (CPU, RAM, GPU, VRAM) -->
+      <div class="nier-center-scope">
+        <div class="scope-slot" data-jump="cpu" title="Tap for CPU tab">
+          <div class="scope-head">
+            <span>CPU Wave (60s)</span>
+            <strong id="wave-lbl-cpu">0.0%</strong>
+          </div>
+          <canvas id="wave-cpu" class="nier-scope-canvas"></canvas>
+        </div>
+
+        <div class="scope-slot" data-jump="mem" title="Tap for Memory tab">
+          <div class="scope-head">
+            <span>RAM Wave (60s)</span>
+            <strong id="wave-lbl-ram">0%</strong>
+          </div>
+          <canvas id="wave-ram" class="nier-scope-canvas"></canvas>
+        </div>
+
+        <div class="scope-slot" data-jump="gpu" title="Tap for GPU / VRAM tab">
+          <div class="scope-head">
+            <span>GPU Wave (60s)</span>
+            <strong id="wave-lbl-gpu">0.0%</strong>
+          </div>
+          <canvas id="wave-gpu" class="nier-scope-canvas"></canvas>
+        </div>
+
+        <div class="scope-slot" data-jump="gpu" title="Tap for GPU / VRAM tab">
+          <div class="scope-head">
+            <span>VRAM Wave (60s)</span>
+            <strong id="wave-lbl-vram">0%</strong>
+          </div>
+          <canvas id="wave-vram" class="nier-scope-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Unit Status Box -->
+    <div class="nier-col-right">
+      <div class="nier-status-card">
+        <div class="nier-status-header">Status</div>
+        <div class="nier-status-body">
+          <div class="nier-unit-row">
+            <span id="nier-hostname" class="unit-name">YoRHa-PC</span>
+            <span id="nier-cores-lv" class="unit-lv">Lv: 12T</span>
+          </div>
+
+          <div class="nier-divider-line"></div>
+
+          <div class="nier-stat-group">
+            <div class="nier-stat-row" data-jump="cpu">
+              <span class="st-k">CPU Load:</span>
+              <div class="st-bar"><i id="nier-bar-cpu"></i></div>
+              <span class="st-v" id="nier-st-cpu">0.0 / 100%</span>
+            </div>
+            <div class="nier-stat-row" data-jump="mem">
+              <span class="st-k">Memory:</span>
+              <div class="st-bar"><i id="nier-bar-ram"></i></div>
+              <span class="st-v" id="nier-st-ram">0.0 / 0 GB</span>
+            </div>
+            <div class="nier-stat-row" data-jump="gpu">
+              <span class="st-k">GPU Load:</span>
+              <div class="st-bar"><i id="nier-bar-gpu"></i></div>
+              <span class="st-v" id="nier-st-gpu">0.0 / 100%</span>
+            </div>
+            <div class="nier-stat-row" data-jump="gpu">
+              <span class="st-k">VRAM:</span>
+              <div class="st-bar"><i id="nier-bar-vram"></i></div>
+              <span class="st-v" id="nier-st-vram">0.0 / 0 GB</span>
+            </div>
+          </div>
+
+          <div class="nier-divider-line"></div>
+
+          <div class="nier-stat-group">
+            <div class="nier-stat-row">
+              <span class="st-k">CPU Model:</span>
+              <span class="st-v wide" id="nier-st-cpuname">—</span>
+            </div>
+            <div class="nier-stat-row">
+              <span class="st-k">GPU Model:</span>
+              <span class="st-v wide" id="nier-st-gpuname">—</span>
+            </div>
+            <div class="nier-stat-row">
+              <span class="st-k">GPU Thermals:</span>
+              <span class="st-v wide" id="nier-st-thermals">— °C · — % Pwr</span>
+            </div>
+          </div>
+
+          <!-- 12 Logical Core Squares -->
+          <div class="nier-cores-block" data-jump="cpu">
+            <div class="cores-caption">Logical Processor Units (<span id="nier-cores-cnt">12</span>)</div>
+            <div id="nier-core-squares" class="nier-core-squares" title="Per-Core Utilization"></div>
+          </div>
+
+          <div class="nier-divider-line"></div>
+
+          <!-- Bottom Diagnostic ("NO ERROR") -->
+          <div class="nier-diag-area">
+            <canvas id="nier-mini-wave" class="nier-mini-wave"></canvas>
+            <div class="nier-no-error" id="nier-diag-text">NO ERROR</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== INTEL TAB: ALL 3 LISTS SIDE BY SIDE ==================== -->
+  <section class="nier-intel-grid" id="nier-intel-view" hidden>
+    <div class="nier-chip-panel intel-col">
+      <div class="nier-status-header">Plug-in Chips: CPU</div>
+      <ol id="nier-intel-cpu" class="nier-chip-list"></ol>
+    </div>
+    <div class="nier-chip-panel intel-col">
+      <div class="nier-status-header">Plug-in Chips: Memory</div>
+      <ol id="nier-intel-mem" class="nier-chip-list"></ol>
+    </div>
+    <div class="nier-chip-panel intel-col">
+      <div class="nier-status-header">Plug-in Chips: GPU</div>
+      <ol id="nier-intel-gpu" class="nier-chip-list"></ol>
+    </div>
+  </section>
+
+  <!-- Bottom Description Banner + Key Prompts -->
+  <footer class="nier-footer">
+    <div class="nier-desc-box">
+      <div class="nier-left-bars" aria-hidden="true"><span></span><span></span></div>
+      <div class="nier-desc-text" id="nier-desc-text">
+        YoRHa System Telemetry Online. Monitoring active processes.
+      </div>
+      <div class="nier-prompts">
+        <button type="button" class="nier-prompt-btn" id="nier-back-btn" hidden title="Return to Overview (Esc)">
+          <span class="key-cap">Esc</span> Overview
+        </button>
+        <button type="button" class="nier-prompt-btn" id="nier-tab-btn" title="Cycle View Tab (Left/Right Arrows)">
+          <span class="key-cap">Tab</span> Next View
+        </button>
+        <button type="button" class="nier-prompt-btn" id="nier-theme-btn" title="Choose Theme">
+          <span class="key-cap">Theme ▾</span>
+        </button>
+        <span class="nier-corner-sq" aria-hidden="true"></span>
+      </div>
+    </div>
+    <div class="nier-rule bot-rule" aria-hidden="true"></div>
+  </footer>
+</div>
