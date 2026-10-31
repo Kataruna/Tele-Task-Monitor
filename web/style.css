@@ -423,6 +423,15 @@ body {
    Shared Process Context Popover (Hold to Pin / Hide)
    Theme-aware styling via [data-theme]
    ========================================================================== */
+/* Process rows are hold-to-open targets (see bindProcessRow in app.js). Without this, a long
+   press on iOS / iPadOS starts a text selection and shows the system callout, which cancels the
+   pointer before the hold timer fires. No touch-action here: the lists must keep scrolling. */
+.proc-row {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .proc-context-menu {
   position: fixed;
   z-index: 9999;

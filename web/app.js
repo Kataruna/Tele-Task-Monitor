@@ -308,18 +308,41 @@ function notifyThemeUpdate() {
   }
 }
 
-async function persistSettingsNow() {
-  try {
-    const res = await fetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state.settings),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      state.settings = { ...state.settings, ...data };
+let persistInFlight = null;
+let persistDirty = false;
+
+/**
+ * Save `state.settings`. A call made while a save is running is coalesced into one follow-up
+ * save of the *latest* settings, so rapid changes (sort toggle, pin, hide) reach the server in
+ * order, and a stale response can never overwrite a newer local value.
+ */
+function persistSettingsNow() {
+  if (persistInFlight) {
+    persistDirty = true;
+    return persistInFlight;
+  }
+  persistInFlight = (async () => {
+    try {
+      do {
+        persistDirty = false;
+        try {
+          const res = await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(state.settings),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            // Newer changes are queued: this response describes an older state.
+            if (!persistDirty) state.settings = { ...state.settings, ...data };
+          }
+        } catch (_) {}
+      } while (persistDirty);
+    } finally {
+      persistInFlight = null;
     }
-  } catch (_) {}
+  })();
+  return persistInFlight;
 }
 
 function togglePin(name) {
@@ -374,6 +397,27 @@ function unhideProcess(name) {
   persistSettingsNow();
 }
 
+/**
+ * Keep the focused process visible. `lists` are the (prepared) entry lists the theme is showing:
+ * if the focused name is in none of them, focus moves to the first entry of the first non-empty
+ * list. A null focus (the user deselected the row) stays null.
+ */
+function reconcileFocus(lists) {
+  const focused = state.focusedProcess;
+  if (!focused || !Array.isArray(lists)) return;
+  const k = focused.toLowerCase();
+  let first = null;
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const e of list) {
+      if (!e || !e.name) continue;
+      if (e.name.toLowerCase() === k) return;
+      if (first === null) first = e.name;
+    }
+  }
+  if (first !== null) state.focusedProcess = first;
+}
+
 function prepareList(entries, metric = "cpu", sortOverride = null) {
   if (!Array.isArray(entries)) return [];
   const visible = entries
@@ -381,25 +425,17 @@ function prepareList(entries, metric = "cpu", sortOverride = null) {
     .map((e) => ({ ...e, _pinned: isPinned(e.name) }));
 
   const gpuSort = sortOverride || state.settings.gpuSort || "usage";
+  const byGpu = (a, b) => (b.gpu ?? 0) - (a.gpu ?? 0);
+  const byVram = (a, b) => (b.vram ?? 0) - (a.vram ?? 0);
+  const gpuOrder = gpuSort === "vram" ? [byVram, byGpu] : [byGpu, byVram];
   visible.sort((a, b) => {
     if (a._pinned !== b._pinned) return a._pinned ? -1 : 1;
     if (metric === "mem") {
       if (b.mem !== a.mem) return b.mem - a.mem;
     } else if (metric === "gpu") {
-      if (gpuSort === "vram") {
-        const va = a.vram ?? 0;
-        const vb = b.vram ?? 0;
-        if (vb !== va) return vb - va;
-        const ga = a.gpu ?? 0;
-        const gb = b.gpu ?? 0;
-        if (gb !== ga) return gb - ga;
-      } else {
-        const ga = a.gpu ?? 0;
-        const gb = b.gpu ?? 0;
-        if (gb !== ga) return gb - ga;
-        const va = a.vram ?? 0;
-        const vb = b.vram ?? 0;
-        if (vb !== va) return vb - va;
+      for (const cmp of gpuOrder) {
+        const d = cmp(a, b);
+        if (d !== 0) return d;
       }
     } else {
       if (b.cpu !== a.cpu) return b.cpu - a.cpu;
@@ -472,6 +508,9 @@ window.addEventListener("keydown", (ev) => {
 
 function bindProcessRow(el, getProcessName) {
   if (!el) return;
+  // Rows are hold-to-open targets: stop iOS/iPadOS from starting a text selection or showing its
+  // callout on a long press (which cancels the pointer and would swallow the hold). See style.css.
+  el.classList.add("proc-row");
   let timer = null;
   let startX = 0;
   let startY = 0;
@@ -519,9 +558,11 @@ function bindProcessRow(el, getProcessName) {
     showProcessMenu(ev.clientX, ev.clientY, name);
   });
 
+  // Swallow the click that ends a long press (it would also run the row's own click handler
+  // and the window listener that closes the menu).
   el.addEventListener("click", (ev) => {
     if (triggered) {
-      ev.stopPropagation();
+      ev.stopImmediatePropagation();
       ev.preventDefault();
       triggered = false;
     }
@@ -744,6 +785,7 @@ const hostApi = {
   setFocusedProcess: (name) => {
     state.focusedProcess = name || null;
   },
+  reconcileFocus,
   getGpuSort: () => state.settings.gpuSort || "usage",
   setGpuSort: (sort) => {
     state.settings.gpuSort = sort === "vram" ? "vram" : "usage";

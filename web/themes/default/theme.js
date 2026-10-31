@@ -109,6 +109,8 @@ export function mount(root, host) {
       li.hidden = true;
 
       let entryName = null;
+      // Registered first: its click guard must run before the row's own click handler.
+      host.bindProcessRow(li, () => entryName);
       li.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (!entryName) return;
@@ -120,8 +122,6 @@ export function mount(root, host) {
         }
         if (lastSample) renderAllTopLists(lastSample);
       });
-
-      host.bindProcessRow(li, () => entryName);
 
       listEl.appendChild(li);
       out.push({
@@ -200,13 +200,7 @@ export function mount(root, host) {
     const prepMem = host.prepareList(s.top.mem || [], "mem");
     const prepGpu = s.top.gpu === null ? null : host.prepareList(s.top.gpu || [], "gpu");
 
-    const focused = host.getFocusedProcess();
-    if (focused) {
-      const allNames = [...(s.top.cpu || []), ...(s.top.mem || []), ...(s.top.gpu || [])].map((e) => e.name.toLowerCase());
-      if (!allNames.includes(focused.toLowerCase()) && prepCpu[0]) {
-        host.setFocusedProcess(prepCpu[0].name);
-      }
-    }
+    host.reconcileFocus([prepCpu, prepMem, prepGpu]);
 
     renderRows(rows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`, (e) => e.cpu, "—");
     renderRows(rows.mem, prepMem, (e) => host.fmtBytes(e.mem), (e) => (ramTotal > 0 ? (e.mem / ramTotal) * 100 : 0), "—");

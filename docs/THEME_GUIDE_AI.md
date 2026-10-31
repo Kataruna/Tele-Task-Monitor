@@ -93,11 +93,17 @@ interface HostApi {
   prepareList(entries: AppEntry[], metric?: "cpu" | "mem" | "gpu", sortOverride?: "usage" | "vram"): Array<AppEntry & { _pinned: boolean }>;
   getFocusedProcess(): string | null;
   setFocusedProcess(name: string | null): void;
+  /** Call once per render with the entry lists on screen (output of prepareList). If the focused
+   *  process is in none of them, focus moves to the first entry of the first non-empty list; a
+   *  null focus (user deselected) stays null. Do not hand-roll this per theme. */
+  reconcileFocus(lists: Array<AppEntry[] | null>): void;
   getGpuSort(): "usage" | "vram";
   setGpuSort(sort: "usage" | "vram"): void;
   toggleGpuSort(): "usage" | "vram";
   getSecondaryMetrics(): boolean;
-  bindProcessRow(el: HTMLElement, getProcessName: () => string | string): void;
+  /** Hold / right-click opens the pin-hide menu. Call it BEFORE adding the row's own click
+   *  listener: it swallows the click that ends a long press. */
+  bindProcessRow(el: HTMLElement, getProcessName: () => string | null): void;
   showProcessMenu(x: number, y: number, name: string): void;
   openThemeMenu(anchorEl: HTMLElement, ev?: MouseEvent): void;
   openSettings(ev?: MouseEvent): void;

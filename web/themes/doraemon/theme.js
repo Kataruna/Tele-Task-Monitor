@@ -220,6 +220,8 @@ export function mount(root, host) {
       li.hidden = true;
 
       let entryName = null;
+      // Registered first: its click guard must run before the row's own click handler.
+      host.bindProcessRow(li, () => entryName);
       li.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (!entryName) return;
@@ -231,8 +233,6 @@ export function mount(root, host) {
         }
         if (lastSample) renderAllLists(lastSample);
       });
-
-      host.bindProcessRow(li, () => entryName);
 
       listEl.appendChild(li);
       items.push({
@@ -316,13 +316,7 @@ export function mount(root, host) {
     const prepMem = host.prepareList(s.top.mem || [], "mem");
     const prepGpu = s.top.gpu === null ? null : host.prepareList(s.top.gpu || [], "gpu");
 
-    const focused = host.getFocusedProcess();
-    if (focused) {
-      const allNames = [...(s.top.cpu || []), ...(s.top.mem || []), ...(s.top.gpu || [])].map((e) => e.name.toLowerCase());
-      if (!allNames.includes(focused.toLowerCase()) && prepCpu[0]) {
-        host.setFocusedProcess(prepCpu[0].name);
-      }
-    }
+    host.reconcileFocus([prepCpu, prepMem, prepGpu]);
 
     const cpuFmt = (e) => `${e.cpu.toFixed(1)}%`;
     const cpuPct = (e) => e.cpu;
@@ -350,14 +344,15 @@ export function mount(root, host) {
       fillList(lists.stGpu, [], () => "", () => 0, "GPU metrics unavailable");
       fillList(lists.detGpu, [], () => "", () => 0, "GPU metrics unavailable");
     } else {
-      const gpuFmt = isVram
-        ? (showSecondary ? (e) => `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%` : (e) => `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%`)
-        : (showSecondary ? (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}` : (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`);
+      const gpuBoth = isVram
+        ? (e) => `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%`
+        : (e) => `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`;
+      const gpuPrimary = isVram ? (e) => host.fmtBytes(e.vram ?? 0) : (e) => `${(e.gpu ?? 0).toFixed(1)}%`;
       const gpuPct = isVram
         ? (e) => (s.gpu && s.gpu.vramTotal > 0 ? ((e.vram ?? 0) / s.gpu.vramTotal) * 100 : 0)
         : (e) => e.gpu ?? 0;
-      fillList(lists.stGpu, prepGpu, gpuFmt, gpuPct, "All gadgets idle");
-      fillList(lists.detGpu, prepGpu, gpuFmt, gpuPct, "All gadgets idle");
+      fillList(lists.stGpu, prepGpu, gpuBoth, gpuPct, "All gadgets idle");
+      fillList(lists.detGpu, prepGpu, showSecondary ? gpuBoth : gpuPrimary, gpuPct, "All gadgets idle");
     }
   }
 

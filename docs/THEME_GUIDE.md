@@ -101,6 +101,12 @@ The second argument passed to `mount(root, host)` provides shared utilities and 
 | `host.getSettings()` | Returns `{ port, defaultTheme, overviewLimit, pageLimit }`. |
 | `host.fmtBytes(bytes)` | Formats a byte count into `"1.6 GB"` (`>= 1 GiB`) or `"420 MB"` (`< 1 GiB`). |
 | `host.drawGraph(canvas, points, strokeColor, opts)` | High-DPI 2D canvas sparkline renderer. Draws `points` (`0..100` array) across a 60-second x-axis. Optional `opts`: `{ lineWidth: 2, fillColor: "rgba(...)", gridColor: "rgba(...)", gridDash: [3, 3] }`. |
+| `host.prepareList(entries, metric)` | Filters hidden processes, marks pinned ones with `_pinned`, and sorts pinned to the top. `metric` is `"cpu"`, `"mem"` or `"gpu"` (GPU order follows `host.getGpuSort()`). |
+| `host.getFocusedProcess()` / `host.setFocusedProcess(name)` | The selected process, tracked by **name** so it follows the process when ranks change. |
+| `host.reconcileFocus(lists)` | Call once per render with the prepared lists on screen: if the focused process is in none of them, focus moves to the top entry of the first non-empty list (a deselected, `null` focus stays `null`). |
+| `host.bindProcessRow(rowEl, () => name)` | Makes a row open the pin / hide menu on press-and-hold or right-click. Call it **before** adding the row's own `click` listener. |
+| `host.getGpuSort()` / `host.toggleGpuSort()` | `"usage"` or `"vram"`: what the GPU list is ranked by first. |
+| `host.getSecondaryMetrics()` | `true` when the user wants the second metric (RAM beside CPU, CPU beside RAM) in detail lists. |
 | `host.openThemeMenu(buttonEl, clickEvent)` | Opens the shared **Select Theme** dropdown anchored to `buttonEl` (includes all themes + `⚙ Settings…`). |
 | `host.openSettings(clickEvent)` | Opens the **System Settings** modal directly. |
 | `host.switchTheme(themeId?)` | Switches to `themeId` (or cycles to the next theme if omitted). |

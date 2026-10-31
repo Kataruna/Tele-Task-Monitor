@@ -307,6 +307,8 @@ export function mount(root, host) {
       li.hidden = true;
 
       let rowEntryName = null;
+      // Registered first: its click guard must run before the row's own click handler.
+      host.bindProcessRow(li, () => rowEntryName);
       li.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (!rowEntryName) return;
@@ -318,8 +320,6 @@ export function mount(root, host) {
         }
         if (lastSample) renderSample(lastSample);
       });
-
-      host.bindProcessRow(li, () => rowEntryName);
 
       listEl.appendChild(li);
       out.push({
@@ -384,26 +384,19 @@ export function mount(root, host) {
 
   rebuildAllLists();
 
-  function resolveFocusedIndex(entries, visibleCount, isPrimaryActive = false) {
+  /** Row index of the focused process among the visible rows, or -1 (no selection). Pure. */
+  function resolveFocusedIndex(entries, visibleCount) {
     if (visibleCount <= 0 || !entries || entries.length === 0) return -1;
     const focused = host.getFocusedProcess();
-    if (focused) {
-      const k = focused.toLowerCase();
-      for (let i = 0; i < visibleCount; i++) {
-        if (entries[i] && entries[i].name.toLowerCase() === k) {
-          return i;
-        }
-      }
-      if (isPrimaryActive && entries[0]) {
-        host.setFocusedProcess(entries[0].name);
-        return 0;
-      }
-      return -1;
+    if (!focused) return -1;
+    const k = focused.toLowerCase();
+    for (let i = 0; i < visibleCount; i++) {
+      if (entries[i] && entries[i].name.toLowerCase() === k) return i;
     }
     return -1;
   }
 
-  function fillChipRows(rows, entries, fmtCost, isPrimaryActive = false) {
+  function fillChipRows(rows, entries, fmtCost) {
     let visibleCount = 0;
     let lastPinnedIdx = -1;
     for (let i = 0; i < rows.length; i++) {
@@ -428,7 +421,7 @@ export function mount(root, host) {
     }
 
     const hasNormalAfterPinned = lastPinnedIdx >= 0 && lastPinnedIdx < visibleCount - 1;
-    const activeIdx = resolveFocusedIndex(entries, visibleCount, isPrimaryActive);
+    const activeIdx = resolveFocusedIndex(entries, visibleCount);
     for (let i = 0; i < rows.length; i++) {
       rows[i].li.classList.toggle("selected", activeIdx >= 0 && i === activeIdx);
       rows[i].li.classList.toggle("pinned-separator", hasNormalAfterPinned && i === lastPinnedIdx);
@@ -453,6 +446,12 @@ export function mount(root, host) {
     const prepMem = host.prepareList(s.top.mem || [], "mem");
     const prepGpu = host.prepareList(s.top.gpu || [], "gpu");
 
+    // Overview and Intel show all three lists; a CPU / Memory / GPU tab shows one. If the focused
+    // process is in none of the lists on screen, focus moves to the top of the first one.
+    host.reconcileFocus(
+      activeTab === "cpu" ? [prepCpu] : activeTab === "mem" ? [prepMem] : activeTab === "gpu" ? [prepGpu] : [prepCpu, prepMem, prepGpu]
+    );
+
     const gpuSort = host.getGpuSort();
     const showSecondary = host.getSecondaryMetrics();
 
@@ -463,13 +462,12 @@ export function mount(root, host) {
       ? (gpuSort === "vram" ? `${vramUsedGB} / ${vramTotalGB} GB` : `${s.gpu.usage.toFixed(1)}% · ${vramUsedGB}G`)
       : "Unavailable";
 
-    fillChipRows(ovRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`, activeTab === "overview");
-    fillChipRows(ovRows.mem, prepMem, (e) => host.fmtBytes(e.mem), false);
+    fillChipRows(ovRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`);
+    fillChipRows(ovRows.mem, prepMem, (e) => host.fmtBytes(e.mem));
     fillChipRows(
       ovRows.gpu,
       prepGpu,
-      (e) => (gpuSort === "vram" ? `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%` : `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`),
-      false
+      (e) => (gpuSort === "vram" ? `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%` : `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`)
     );
 
     // Right Status Card
@@ -505,13 +503,12 @@ export function mount(root, host) {
     }
 
     // Populate Intel all-3 view
-    fillChipRows(intelRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`, activeTab === "intel");
-    fillChipRows(intelRows.mem, prepMem, (e) => host.fmtBytes(e.mem), false);
+    fillChipRows(intelRows.cpu, prepCpu, (e) => `${e.cpu.toFixed(1)}%`);
+    fillChipRows(intelRows.mem, prepMem, (e) => host.fmtBytes(e.mem));
     fillChipRows(
       intelRows.gpu,
       prepGpu,
-      (e) => (gpuSort === "vram" ? `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%` : `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`),
-      false
+      (e) => (gpuSort === "vram" ? `${host.fmtBytes(e.vram ?? 0)} · ${(e.gpu ?? 0).toFixed(1)}%` : `${(e.gpu ?? 0).toFixed(1)}% · ${host.fmtBytes(e.vram ?? 0)}`)
     );
 
     // Populate Single-Resource view & Central Capacity Bar
@@ -533,8 +530,7 @@ export function mount(root, host) {
           : `${(e.gpu ?? 0).toFixed(1)}%${showSecondary ? ` · ${host.fmtBytes(e.vram ?? 0)}` : ""}`;
     }
 
-    const isSingleActive = activeTab === "cpu" || activeTab === "mem" || activeTab === "gpu";
-    const { visibleCount: fitCount, activeIdx } = fillChipRows(singleRows, stackList, fmtSingle, isSingleActive);
+    const { visibleCount: fitCount, activeIdx } = fillChipRows(singleRows, stackList, fmtSingle);
     updateCustomScrollbar();
 
     renderCentralStack(s, ramPct, gpuUsage, vramPct, stackList, fitCount, activeIdx);
@@ -618,11 +614,11 @@ export function mount(root, host) {
         if (els.stackMode) els.stackMode.textContent = "RAM";
         if (els.stackPct) els.stackPct.textContent = `${ramPct.toFixed(0)}%`;
       } else if (activeTab === "gpu") {
-        const useVram = host.getGpuSort() === "vram";
+        const useVram = host.getGpuSort() === "vram" && Boolean(s.gpu) && s.gpu.vramTotal > 0;
         totalTargetPct = useVram ? vramPct : gpuUsage;
         valOf = (e) =>
           useVram
-            ? ((e.vram ?? 0) / Math.max(1, s.gpu ? s.gpu.vramTotal : 1)) * 100
+            ? ((e.vram ?? 0) / s.gpu.vramTotal) * 100
             : e.gpu ?? 0;
         lblOf = (e) =>
           useVram
