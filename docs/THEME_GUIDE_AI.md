@@ -133,7 +133,9 @@ interface AppEntry {
   cpu: number;         // 0..100 (1 decimal)
   mem: number;         // private working set in bytes
   gpu: number | null;  // 0..100 (1 decimal) or null
-  vram: number | null; // dedicated VRAM in bytes or null
+  vram: number | null; // dedicated VRAM in bytes (summed over the app's processes) or null.
+                       // Never above the adapter's measured usage (SamplePayload.gpu.vramUsed),
+                       // so one app can never look bigger than the whole GPU.
 }
 
 interface SamplePayload {
@@ -148,15 +150,17 @@ interface SamplePayload {
   };
   gpu: {
     usage: number;           // 0..100
-    vramUsed: number;        // bytes
-    vramTotal: number;       // bytes
+    vramUsed: number;        // bytes; held at the adapter's capacity, so it can read equal to
+                             // vramTotal but not above it on a normal GPU
+    vramTotal: number;       // bytes (DXGI DedicatedVideoMemory; 0 if the adapter is unknown)
     tempC: number | null;    // °C
     powerPct: number | null; // % TDP
   } | null;
   top: {
     cpu: AppEntry[];        // sorted desc by cpu
     mem: AppEntry[];        // sorted desc by mem
-    gpu: AppEntry[] | null; // sorted desc by gpu, tie-broken by vram
+    gpu: AppEntry[] | null; // sorted desc by gpu, tie-broken by vram (vram first when
+                            // settings.gpuSort === "vram")
   };
   self: {
     cpu: number; // tele-task-monitor.exe own CPU %

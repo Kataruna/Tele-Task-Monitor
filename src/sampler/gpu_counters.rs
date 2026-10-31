@@ -10,16 +10,24 @@ use windows::Win32::System::Performance::{
 use windows::core::{PCWSTR, w};
 
 use crate::aggregate::{ProcGpu, round1};
+use crate::sampler::gpu_adapter::GpuAdapter;
 
 /// One GPU reading.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct GpuReading {
     /// Busiest engine on the target adapter, 0–100 (Task Manager's headline GPU %).
     pub usage: f32,
-    /// Dedicated VRAM in use on the target adapter, bytes.
+    /// Dedicated VRAM in use on the target adapter, bytes (never above the adapter's capacity
+    /// when that is known).
     pub vram_used: u64,
-    /// Per-PID GPU % (busiest engine for that PID) and dedicated VRAM.
+    /// Per-PID GPU % (busiest engine for that PID) and dedicated VRAM, as the counters report
+    /// them. Per-process VRAM counters can drift upward over time (Microsoft KB4490156) and count
+    /// shared allocations once per process, so they are bounded per *app* via `app_vram_cap`.
     pub per_pid: HashMap<u32, ProcGpu>,
+    /// Upper bound for one app's summed dedicated VRAM: no app can hold more than the adapter
+    /// reports in use, or, when the adapter counter returned nothing, more than its capacity.
+    /// `None` when neither is known.
+    pub app_vram_cap: Option<u64>,
 }
 
 /// `pid_1234_luid_..._eng_0_engtype_3D` -> `Some(1234)`.
@@ -55,11 +63,14 @@ fn matches_luid(instance: &str, luid_filter: Option<&str>) -> bool {
 /// - `adapter_mem`: `\GPU Adapter Memory(*)\Dedicated Usage`
 /// - `luid_filter`: optional `"luid_0xHHHHHHHH_0xLLLLLLLL"` of the primary hardware GPU so
 ///   virtual display drivers and software renderers (WARP) do not pollute GPU metrics.
+/// - `vram_cap`: that GPU's dedicated memory capacity in bytes, `0` if unknown. Adapter usage
+///   is held at or below it.
 pub fn reduce(
     engine: &[(String, f64)],
     proc_mem: &[(String, f64)],
     adapter_mem: &[(String, f64)],
     luid_filter: Option<&str>,
+    vram_cap: u64,
 ) -> GpuReading {
     let mut per_engine: HashMap<String, f64> = HashMap::new();
     let mut per_pid: HashMap<u32, ProcGpu> = HashMap::new();
@@ -81,7 +92,8 @@ pub fn reduce(
             continue;
         }
         if let Some(pid) = parse_pid(name) {
-            per_pid.entry(pid).or_default().vram += value.max(0.0) as u64;
+            let e = per_pid.entry(pid).or_default();
+            e.vram = e.vram.saturating_add(value.max(0.0) as u64);
         }
     }
     for g in per_pid.values_mut() {
@@ -91,9 +103,12 @@ pub fn reduce(
     let vram_used = adapter_mem
         .iter()
         .filter(|(name, _)| matches_luid(name, luid_filter))
-        .map(|(_, v)| v.max(0.0) as u64)
-        .sum();
-    GpuReading { usage: round1(usage), vram_used, per_pid }
+        .fold(0u64, |acc, (_, v)| acc.saturating_add(v.max(0.0) as u64));
+    let vram_used = if vram_cap > 0 { vram_used.min(vram_cap) } else { vram_used };
+    // `vram_used == 0` means the adapter counter returned nothing this tick (a live desktop
+    // always holds some VRAM), so it cannot serve as a bound; fall back to the capacity.
+    let app_vram_cap = if vram_used > 0 { Some(vram_used) } else { (vram_cap > 0).then_some(vram_cap) };
+    GpuReading { usage: round1(usage), vram_used, per_pid, app_vram_cap }
 }
 
 /// Owns the PDH query. Not `Send`: create and use it on the sampler thread only.
@@ -103,11 +118,14 @@ pub struct GpuCounters {
     proc_mem: PDH_HCOUNTER,
     adapter_mem: PDH_HCOUNTER,
     luid_filter: Option<String>,
+    vram_cap: u64,
     buf: Vec<u64>,
 }
 
 impl GpuCounters {
-    pub fn open(luid_filter: Option<String>) -> Result<Self, String> {
+    /// `adapter` is the GPU to report on; its LUID filters the counters and its capacity bounds
+    /// the readings, so both always describe the same GPU. `None` reads every adapter, unbounded.
+    pub fn open(adapter: Option<&GpuAdapter>) -> Result<Self, String> {
         let mut query = PDH_HQUERY::default();
         // SAFETY: valid out-pointer; null data source = live data.
         let s = unsafe { PdhOpenQueryW(PCWSTR::null(), 0, &mut query) };
@@ -119,7 +137,8 @@ impl GpuCounters {
             engine: PDH_HCOUNTER::default(),
             proc_mem: PDH_HCOUNTER::default(),
             adapter_mem: PDH_HCOUNTER::default(),
-            luid_filter,
+            luid_filter: adapter.map(|a| a.luid_tag.clone()),
+            vram_cap: adapter.map_or(0, |a| a.vram_cap),
             buf: Vec::new(),
         };
         for (path, slot) in [
@@ -149,7 +168,7 @@ impl GpuCounters {
         let engine = self.array(self.engine, false);
         let proc_mem = self.array(self.proc_mem, true);
         let adapter_mem = self.array(self.adapter_mem, true);
-        Ok(reduce(&engine, &proc_mem, &adapter_mem, self.luid_filter.as_deref()))
+        Ok(reduce(&engine, &proc_mem, &adapter_mem, self.luid_filter.as_deref(), self.vram_cap))
     }
 
     /// Read a wildcard counter as (instance name, value). Any error yields an empty list
@@ -235,7 +254,7 @@ mod tests {
             s("pid_2_luid_0x0_0xA_phys_0_eng_0_engtype_3D", 35.0),
             s("pid_1_luid_0x0_0xA_phys_0_eng_5_engtype_VideoDecode", 60.0),
         ];
-        let r = reduce(&engine, &[], &[], None);
+        let r = reduce(&engine, &[], &[], None, 0);
         assert_eq!(r.usage, 75.0);
     }
 
@@ -246,7 +265,7 @@ mod tests {
             s("pid_1_luid_0x0_0xA_phys_0_eng_5_engtype_VideoDecode", 60.0),
         ];
         let mem = vec![s("pid_1_luid_0x0_0xA_phys_0", 1000.0), s("pid_1_luid_0x0_0xB_phys_0", 24.0), s("pid_9_luid_0x0_0xA_phys_0", 5.0)];
-        let r = reduce(&engine, &mem, &[], None);
+        let r = reduce(&engine, &mem, &[], None, 0);
         assert_eq!(r.per_pid[&1], ProcGpu { gpu: 60.0, vram: 1024 });
         assert_eq!(r.per_pid[&9], ProcGpu { gpu: 0.0, vram: 5 });
     }
@@ -255,14 +274,14 @@ mod tests {
     fn usage_is_clamped_and_vram_used_sums_adapters() {
         let engine = vec![s("pid_1_luid_0x0_0xA_phys_0_eng_0_engtype_3D", 80.0), s("pid_2_luid_0x0_0xA_phys_0_eng_0_engtype_3D", 70.0)];
         let adapters = vec![s("luid_0x0_0xA_phys_0", 2_000_000_000.0), s("luid_0x0_0xB_phys_0", 0.0)];
-        let r = reduce(&engine, &[], &adapters, None);
+        let r = reduce(&engine, &[], &adapters, None, 0);
         assert_eq!(r.usage, 100.0);
         assert_eq!(r.vram_used, 2_000_000_000);
     }
 
     #[test]
     fn malformed_instances_are_ignored() {
-        let r = reduce(&[s("weird", 50.0)], &[s("also weird", 9.0)], &[], None);
+        let r = reduce(&[s("weird", 50.0)], &[s("also weird", 9.0)], &[], None, 0);
         assert_eq!(r, GpuReading::default());
     }
 
@@ -281,7 +300,7 @@ mod tests {
             s("luid_0x00000000_0x000116c1_phys_0", 99_000_000.0),
             s("luid_0x00000000_0x4b7d703f_phys_0", 3_000_000_000.0),
         ];
-        let r = reduce(&engine, &proc_mem, &adapter_mem, Some("luid_0x00000000_0x4b7d703f"));
+        let r = reduce(&engine, &proc_mem, &adapter_mem, Some("luid_0x00000000_0x4b7d703f"), 0);
         assert_eq!(r.usage, 14.0);
         assert_eq!(r.vram_used, 3_000_000_000);
         assert!(!r.per_pid.contains_key(&60324), "virtual adapter PID must be excluded");
@@ -289,12 +308,58 @@ mod tests {
     }
 
     #[test]
+    fn adapter_usage_is_held_at_capacity_and_bounds_every_app() {
+        let adapters = vec![s("luid_0x0_0xA_phys_0", 15_000.0)];
+        let mem = vec![s("pid_1_luid_0x0_0xA_phys_0", 40_000.0)];
+        let r = reduce(&[], &mem, &adapters, None, 12_000);
+        assert_eq!(r.vram_used, 12_000, "usage above capacity is pinned to capacity");
+        assert_eq!(r.app_vram_cap, Some(12_000));
+
+        // Measured usage below capacity is the tighter bound for any one app.
+        let adapters = vec![s("luid_0x0_0xA_phys_0", 3_400.0)];
+        let r = reduce(&[], &mem, &adapters, None, 12_000);
+        assert_eq!(r.vram_used, 3_400);
+        assert_eq!(r.app_vram_cap, Some(3_400));
+        assert_eq!(r.per_pid[&1].vram, 40_000, "per-process values stay as reported; the cap applies per app");
+    }
+
+    #[test]
+    fn app_cap_falls_back_to_capacity_when_adapter_counter_is_empty() {
+        let mem = vec![s("pid_1_luid_0x0_0xA_phys_0", 40_000.0)];
+        let r = reduce(&[], &mem, &[], None, 12_000);
+        assert_eq!(r.vram_used, 0);
+        assert_eq!(r.app_vram_cap, Some(12_000), "an empty adapter array must not cap apps at 0");
+    }
+
+    #[test]
+    fn unknown_capacity_and_no_adapter_data_leaves_everything_unbounded() {
+        let mem = vec![s("pid_1_luid_0x0_0xA_phys_0", 40_000.0)];
+        let r = reduce(&[], &mem, &[], None, 0);
+        assert_eq!(r.app_vram_cap, None);
+        let r = reduce(&[], &mem, &[s("luid_0x0_0xA_phys_0", 15_000.0)], None, 0);
+        assert_eq!((r.vram_used, r.app_vram_cap), (15_000, Some(15_000)), "no capacity known: usage passes through");
+    }
+
+    #[test]
+    fn vram_sums_saturate_instead_of_wrapping() {
+        let huge = i64::MAX as f64;
+        let mem = vec![s("pid_1_luid_0x0_0xA_phys_0", huge), s("pid_1_luid_0x0_0xA_phys_1", huge), s("pid_1_luid_0x0_0xA_phys_2", huge)];
+        let adapters = vec![s("luid_0x0_0xA_phys_0", huge), s("luid_0x0_0xA_phys_1", huge), s("luid_0x0_0xA_phys_2", huge)];
+        let r = reduce(&[], &mem, &adapters, None, 0);
+        assert_eq!(r.vram_used, u64::MAX);
+        assert_eq!(r.per_pid[&1].vram, u64::MAX);
+    }
+
+    #[test]
     fn live_counters_open_and_read() {
-        let luid = crate::sampler::gpu_adapter::GpuAdapter::open().ok().map(|a| a.luid_tag.clone());
-        let mut c = GpuCounters::open(luid).expect("PDH GPU counters available on this PC");
+        let adapter = GpuAdapter::open().ok();
+        let mut c = GpuCounters::open(adapter.as_ref()).expect("PDH GPU counters available on this PC");
         std::thread::sleep(std::time::Duration::from_millis(300));
         let r = c.read().expect("read");
         assert!((0.0..=100.0).contains(&r.usage));
         assert!(r.vram_used > 0, "desktop compositor always holds some VRAM");
+        if let Some(a) = &adapter {
+            assert!(r.vram_used <= a.vram_cap, "vram_used {} above capacity {}", r.vram_used, a.vram_cap);
+        }
     }
 }

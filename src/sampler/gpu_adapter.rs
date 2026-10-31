@@ -25,9 +25,18 @@ pub fn format_luid_tag(luid: windows::Win32::Foundation::LUID) -> String {
 
 pub struct GpuAdapter {
     pub name: String,
+    /// DXGI `DedicatedVideoMemory`: the figure shown to users as "total VRAM".
     pub vram_total: u64,
+    /// Upper bound for dedicated-memory *usage*: `DedicatedVideoMemory` plus
+    /// `DedicatedSystemMemory`. The PDH "Dedicated Usage" counters cover every dedicated
+    /// segment, and drivers that reserve theirs from system RAM report those under
+    /// `DedicatedSystemMemory` (0 on typical discrete cards), so this is never below
+    /// `vram_total`.
+    pub vram_cap: u64,
     pub luid_tag: String,
-    handle: u32,
+    /// D3DKMT handle, only needed for temperature / power. `None` when it could not be opened;
+    /// name, capacity and LUID from DXGI stay valid either way.
+    handle: Option<u32>,
 }
 
 impl GpuAdapter {
@@ -36,7 +45,7 @@ impl GpuAdapter {
     pub fn open() -> Result<Self, String> {
         // SAFETY: plain COM factory creation; the factory is dropped at the end of this fn.
         let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1() }.map_err(|e| format!("CreateDXGIFactory1: {e}"))?;
-        let mut best: Option<(String, u64, windows::Win32::Foundation::LUID)> = None;
+        let mut best: Option<(String, u64, u64, windows::Win32::Foundation::LUID)> = None;
         let mut i = 0;
         // SAFETY: EnumAdapters1 returns Err(DXGI_ERROR_NOT_FOUND) after the last adapter.
         while let Ok(adapter) = unsafe { factory.EnumAdapters1(i) } {
@@ -48,25 +57,34 @@ impl GpuAdapter {
             let vram = d.DedicatedVideoMemory as u64;
             if best.as_ref().is_none_or(|b| vram > b.1) {
                 let name = String::from_utf16_lossy(&d.Description).trim_end_matches('\0').trim().to_string();
-                best = Some((name, vram, d.AdapterLuid));
+                let cap = vram.saturating_add(d.DedicatedSystemMemory as u64);
+                best = Some((name, vram, cap, d.AdapterLuid));
             }
         }
-        let (name, vram_total, luid) = best.ok_or("no hardware GPU adapter found")?;
+        let (name, vram_total, vram_cap, luid) = best.ok_or("no hardware GPU adapter found")?;
         let luid_tag = format_luid_tag(luid);
         let mut open = D3DKMT_OPENADAPTERFROMLUID { AdapterLuid: luid, hAdapter: 0 };
         // SAFETY: valid in/out struct.
         let status = unsafe { D3DKMTOpenAdapterFromLuid(&mut open) };
-        if status.is_err() {
-            return Err(format!("D3DKMTOpenAdapterFromLuid: {:#x}", status.0));
-        }
-        Ok(Self { name, vram_total, luid_tag, handle: open.hAdapter })
+        let handle = if status.is_err() {
+            // Only temperature / power need this handle. Keep the adapter's identity so the PDH
+            // counters stay filtered to (and bounded by) this GPU instead of summing all of them.
+            eprintln!("warning: GPU temperature/power disabled: D3DKMTOpenAdapterFromLuid: {:#x}", status.0);
+            None
+        } else {
+            Some(open.hAdapter)
+        };
+        Ok(Self { name, vram_total, vram_cap, luid_tag, handle })
     }
 
     /// (temperature °C, power % of limit). Either is None if the driver does not report it.
     pub fn perf(&self) -> (Option<f32>, Option<f32>) {
+        let Some(handle) = self.handle else {
+            return (None, None);
+        };
         let mut perf = D3DKMT_ADAPTER_PERFDATA::default();
         let mut q = D3DKMT_QUERYADAPTERINFO {
-            hAdapter: self.handle,
+            hAdapter: handle,
             Type: KMTQAITYPE_ADAPTERPERFDATA,
             pPrivateDriverData: (&mut perf as *mut D3DKMT_ADAPTER_PERFDATA).cast(),
             PrivateDriverDataSize: std::mem::size_of::<D3DKMT_ADAPTER_PERFDATA>() as u32,
@@ -82,7 +100,10 @@ impl GpuAdapter {
 
 impl Drop for GpuAdapter {
     fn drop(&mut self) {
-        let close = D3DKMT_CLOSEADAPTER { hAdapter: self.handle };
+        let Some(handle) = self.handle else {
+            return;
+        };
+        let close = D3DKMT_CLOSEADAPTER { hAdapter: handle };
         // SAFETY: handle came from D3DKMTOpenAdapterFromLuid.
         unsafe {
             let _ = D3DKMTCloseAdapter(&close);
@@ -107,6 +128,7 @@ mod tests {
         assert!(!gpu.name.is_empty());
         assert!(gpu.luid_tag.starts_with("luid_0x"));
         assert!(gpu.vram_total > 1_000_000_000, "expected > 1 GB VRAM, got {}", gpu.vram_total);
+        assert!(gpu.vram_cap >= gpu.vram_total);
         let (temp, _power) = gpu.perf();
         let t = temp.expect("driver reports temperature");
         assert!((10.0..=110.0).contains(&t), "temperature {t}");

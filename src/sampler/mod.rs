@@ -40,8 +40,7 @@ impl Sampler {
     pub fn new(interval: Duration) -> Self {
         let logical_cores = system::logical_cores();
         let gpu_adapter = GpuAdapter::open().map_err(|e| eprintln!("warning: GPU info disabled: {e}")).ok();
-        let luid_filter = gpu_adapter.as_ref().map(|a| a.luid_tag.clone());
-        let gpu_counters = GpuCounters::open(luid_filter).map_err(|e| eprintln!("warning: per-app GPU disabled: {e}")).ok();
+        let gpu_counters = GpuCounters::open(gpu_adapter.as_ref()).map_err(|e| eprintln!("warning: per-app GPU disabled: {e}")).ok();
         Self {
             logical_cores,
             interval,
@@ -95,17 +94,14 @@ impl Sampler {
             }
         };
 
-        let vram_total = self.gpu_adapter.as_ref().map(|a| a.vram_total).unwrap_or(0);
-        let mut gpu_reading = self.gpu_counters.as_mut().and_then(|c| c.read().ok());
-        if let Some(r) = &mut gpu_reading {
-            if vram_total > 0 {
-                r.vram_used = r.vram_used.min(vram_total);
-                for p in r.per_pid.values_mut() {
-                    p.vram = p.vram.min(vram_total);
-                }
-            }
-        }
-        let apps = group_by_name(&rows, gpu_reading.as_ref().map(|r| &r.per_pid));
+        let gpu_reading = self.gpu_counters.as_mut().and_then(|c| c.read().ok());
+        // VRAM bounds are applied where the readings are built (`gpu_counters::reduce`) and where
+        // per-app sums are formed (`group_by_name`), so they are unit-tested away from the OS.
+        let apps = group_by_name(
+            &rows,
+            gpu_reading.as_ref().map(|r| &r.per_pid),
+            gpu_reading.as_ref().and_then(|r| r.app_vram_cap),
+        );
         let top = build_top(&apps, crate::aggregate::current_top_n(), gpu_reading.is_some());
 
         let gpu = gpu_reading.as_ref().map(|r| {
@@ -113,7 +109,7 @@ impl Sampler {
             GpuSample {
                 usage: r.usage,
                 vram_used: r.vram_used,
-                vram_total,
+                vram_total: self.gpu_adapter.as_ref().map(|a| a.vram_total).unwrap_or(0),
                 temp_c,
                 power_pct,
             }
