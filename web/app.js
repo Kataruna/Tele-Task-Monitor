@@ -81,6 +81,13 @@ function pushHistory(arr, v) {
   while (arr.length > HISTORY_LEN) arr.shift();
 }
 
+/** Null points to insert after a gap in the stream: one per missed tick, at least 1, at most the window. */
+export function historyGap(lastSampleAt, now, intervalMs) {
+  if (!lastSampleAt) return 1;
+  const missed = Math.round((now - lastSampleAt) / Math.max(1, intervalMs));
+  return Math.max(1, Math.min(HISTORY_LEN, missed));
+}
+
 export function fmtBytes(n) {
   if (n == null || n < 0) return "—";
   const gb = n / 1073741824;
@@ -923,14 +930,24 @@ function setStatus(st, text) {
   }
 }
 
+// One live connection at a time. It is closed while the page is hidden (tab in the background,
+// iPad locked or app switched away) so the PC stops sampling for a dashboard nobody can see: with
+// no viewer the sampler makes zero OS calls.
+let es = null;
+let everConnected = false;
+let lastSampleAt = 0;
+
 function connectSse() {
-  let everConnected = false;
-  const es = new EventSource("/api/stream");
+  if (es) return;
+  es = new EventSource("/api/stream");
 
   es.addEventListener("info", (ev) => {
     if (everConnected) {
+      // Mark the time we were not receiving, in proportion to how long it was (capped at the
+      // window), so old points are not drawn as if they were contiguous with new ones.
+      const gap = historyGap(lastSampleAt, Date.now(), (state.info && state.info.intervalMs) || 1000);
       for (const k of Object.keys(state.history)) {
-        pushHistory(state.history[k], null);
+        for (let i = 0; i < gap; i++) pushHistory(state.history[k], null);
       }
     }
     everConnected = true;
@@ -945,6 +962,7 @@ function connectSse() {
   es.addEventListener("sample", (ev) => {
     const s = JSON.parse(ev.data);
     state.sample = s;
+    lastSampleAt = Date.now();
     setStatus("live", "Live");
 
     const ramPct = s.ram.total > 0 ? (s.ram.used / s.ram.total) * 100 : 0;
@@ -970,5 +988,20 @@ function connectSse() {
   };
 }
 
+function disconnectSse() {
+  if (!es) return;
+  es.close();
+  es = null;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    disconnectSse();
+  } else if (!es) {
+    setStatus("connecting", "Connecting…");
+    connectSse();
+  }
+});
+
 initManifest();
-connectSse();
+if (!document.hidden) connectSse();
