@@ -192,7 +192,6 @@ mod tests {
     use tokio::sync::watch;
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "macOS backend readers are still placeholders")]
     fn info_describes_this_pc() {
         let s = Sampler::new(Duration::from_millis(1000));
         let info = s.info();
@@ -203,7 +202,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "macOS backend readers are still placeholders")]
     fn primed_sample_has_consistent_shape() {
         let mut s = Sampler::new(Duration::from_millis(300));
         s.prime();
@@ -220,7 +218,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(target_os = "macos", ignore = "macOS backend readers are still placeholders")]
     fn spawn_publishes_only_while_watched() {
         let viewers = crate::viewers::Viewers::new();
         let (tx, mut rx) = watch::channel(None);
