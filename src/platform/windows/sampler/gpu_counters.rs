@@ -10,25 +10,8 @@ use windows::Win32::System::Performance::{
 use windows::core::{PCWSTR, w};
 
 use crate::aggregate::{ProcGpu, round1};
-use crate::sampler::gpu_adapter::GpuAdapter;
-
-/// One GPU reading.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct GpuReading {
-    /// Busiest engine on the target adapter, 0–100 (Task Manager's headline GPU %).
-    pub usage: f32,
-    /// Dedicated VRAM in use on the target adapter, bytes (never above the adapter's capacity
-    /// when that is known).
-    pub vram_used: u64,
-    /// Per-PID GPU % (busiest engine for that PID) and dedicated VRAM, as the counters report
-    /// them. Per-process VRAM counters can drift upward over time (Microsoft KB4490156) and count
-    /// shared allocations once per process, so they are bounded per *app* via `app_vram_cap`.
-    pub per_pid: HashMap<u32, ProcGpu>,
-    /// Upper bound for one app's summed dedicated VRAM: no app can hold more than the adapter
-    /// reports in use, or, when the adapter counter returned nothing, more than its capacity.
-    /// `None` when neither is known.
-    pub app_vram_cap: Option<u64>,
-}
+use super::gpu_adapter::GpuAdapter;
+use crate::sampler::gpu::GpuReading;
 
 /// `pid_1234_luid_..._eng_0_engtype_3D` -> `Some(1234)`.
 pub fn parse_pid(instance: &str) -> Option<u32> {

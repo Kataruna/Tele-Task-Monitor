@@ -1,4 +1,6 @@
 /target
 /tele-task-monitor.exe
+/tele-task-monitor
 /settings.json
 .superpowers/
+.DS_Store

@@ -108,7 +108,7 @@ async fn post_settings(State(st): State<AppState>, body: Bytes) -> Response {
 
     if let (Some(listener), Some(tx)) = (bound_new_listener, st.port_change_tx.clone()) {
         let new_port = saved.port;
-        crate::tray::update_port(new_port);
+        crate::platform::tray::update_port(new_port);
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(250)).await;
             let _ = tx.send(listener);

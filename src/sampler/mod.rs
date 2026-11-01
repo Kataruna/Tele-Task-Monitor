@@ -1,10 +1,9 @@
 //! The sampler: owns all OS readers, runs on its own thread, and only works while
-//! at least one viewer is connected.
+//! at least one viewer is connected. This file is portable; the OS readers it drives come from
+//! `crate::platform::sampler` (see the contract in `src/platform/mod.rs`).
 
-pub mod gpu_adapter;
-pub mod gpu_counters;
-pub mod procs;
-pub mod system;
+pub mod cpu;
+pub mod gpu;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -12,12 +11,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::watch;
 
 use crate::aggregate::{build_top, group_by_name, round1};
-use crate::model::{CpuInfo, CpuSample, GpuInfo, GpuSample, Info, RamInfo, RamSample, Sample, SelfUsage};
+use crate::model::{CpuInfo, CpuSample, GpuSample, Info, RamInfo, RamSample, Sample, SelfUsage};
+use crate::platform::sampler::{self as system, CpuTimes, Gpu, ProcSnapshot};
+use crate::platform::{CpuLoad, GpuSource, ProcessSource};
 use crate::viewers::Viewers;
-use gpu_adapter::GpuAdapter;
-use gpu_counters::GpuCounters;
-use procs::{CpuTracker, ProcSnapshot};
-use system::CpuTimes;
+use cpu::CpuTracker;
 
 /// Latest serialized `Sample` JSON; `None` before the first sample.
 pub type SampleTx = watch::Sender<Option<Arc<str>>>;
@@ -30,8 +28,7 @@ pub struct Sampler {
     snapshot: ProcSnapshot,
     tracker: CpuTracker,
     cpu_times: CpuTimes,
-    gpu_counters: Option<GpuCounters>,
-    gpu_adapter: Option<GpuAdapter>,
+    gpu: Gpu,
     last: Instant,
 }
 
@@ -39,8 +36,6 @@ impl Sampler {
     /// Optional GPU parts that fail to open are logged once and disabled.
     pub fn new(interval: Duration) -> Self {
         let logical_cores = system::logical_cores();
-        let gpu_adapter = GpuAdapter::open().map_err(|e| eprintln!("warning: GPU info disabled: {e}")).ok();
-        let gpu_counters = GpuCounters::open(gpu_adapter.as_ref()).map_err(|e| eprintln!("warning: per-app GPU disabled: {e}")).ok();
         Self {
             logical_cores,
             interval,
@@ -48,8 +43,7 @@ impl Sampler {
             snapshot: ProcSnapshot::new(),
             tracker: CpuTracker::default(),
             cpu_times: CpuTimes::new(logical_cores),
-            gpu_counters,
-            gpu_adapter,
+            gpu: Gpu::open(),
             last: Instant::now(),
         }
     }
@@ -60,7 +54,7 @@ impl Sampler {
             hostname: system::hostname(),
             cpu: CpuInfo { name: system::cpu_brand(), logical_cores: self.logical_cores },
             ram: RamInfo { total: system::ram().1 },
-            gpu: self.gpu_adapter.as_ref().map(|g| GpuInfo { name: g.name.clone(), vram_total: g.vram_total }),
+            gpu: self.gpu.info(),
             interval_ms: self.interval.as_millis() as u64,
         }
     }
@@ -70,9 +64,7 @@ impl Sampler {
     pub fn release_idle(&mut self) {
         self.snapshot.release();
         self.tracker.clear();
-        if let Some(c) = self.gpu_counters.as_mut() {
-            c.release();
-        }
+        self.gpu.release();
     }
 
     /// Establish baselines for every delta-based reading. Call after waking from idle,
@@ -82,9 +74,7 @@ impl Sampler {
         if let Ok(procs) = self.snapshot.take() {
             self.tracker.update(&procs, Duration::ZERO, self.logical_cores);
         }
-        if let Some(c) = self.gpu_counters.as_mut() {
-            c.collect(); // baseline only: formatting thousands of instances here would be thrown away
-        }
+        self.gpu.collect();
         self.last = Instant::now();
     }
 
@@ -104,8 +94,8 @@ impl Sampler {
             }
         };
 
-        let gpu_reading = self.gpu_counters.as_mut().and_then(|c| c.read().ok());
-        // VRAM bounds are applied where the readings are built (`gpu_counters::reduce`) and where
+        let gpu_reading = self.gpu.read();
+        // VRAM bounds are applied where the readings are built (in the platform reader) and where
         // per-app sums are formed (`group_by_name`), so they are unit-tested away from the OS.
         let apps = group_by_name(
             &rows,
@@ -115,11 +105,11 @@ impl Sampler {
         let top = build_top(&apps, crate::aggregate::current_top_n(), gpu_reading.is_some());
 
         let gpu = gpu_reading.as_ref().map(|r| {
-            let (temp_c, power_pct) = self.gpu_adapter.as_ref().map(|a| a.perf()).unwrap_or((None, None));
+            let (temp_c, power_pct) = self.gpu.perf();
             GpuSample {
                 usage: r.usage,
                 vram_used: r.vram_used,
-                vram_total: self.gpu_adapter.as_ref().map(|a| a.vram_total).unwrap_or(0),
+                vram_total: self.gpu.vram_total(),
                 temp_c,
                 power_pct,
             }
@@ -148,7 +138,7 @@ pub fn spawn(viewers: Arc<Viewers>, tx: SampleTx, interval: Duration) -> Info {
     std::thread::Builder::new()
         .name("sampler".into())
         .spawn(move || {
-            // Built on this thread: PDH/D3DKMT handles stay on the thread that uses them.
+            // Built on this thread: OS handles (e.g. PDH/D3DKMT on Windows) stay on the thread that uses them.
             let mut sampler = Sampler::new(interval);
             info_tx.send(sampler.info()).expect("main thread waiting for info");
             run(&mut sampler, &viewers, &tx, interval);
@@ -168,7 +158,7 @@ fn run(sampler: &mut Sampler, viewers: &Viewers, tx: &SampleTx, interval: Durati
     loop {
         sampler.release_idle();
         if !viewers.wait_for_viewer_timeout(IDLE_TRIM_AFTER) {
-            crate::priority::trim_working_set();
+            crate::platform::priority::trim_working_set();
             viewers.wait_for_viewer();
         }
         sampler.prime();
@@ -202,6 +192,7 @@ mod tests {
     use tokio::sync::watch;
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "macOS backend readers are still placeholders")]
     fn info_describes_this_pc() {
         let s = Sampler::new(Duration::from_millis(1000));
         let info = s.info();
@@ -212,6 +203,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "macOS backend readers are still placeholders")]
     fn primed_sample_has_consistent_shape() {
         let mut s = Sampler::new(Duration::from_millis(300));
         s.prime();
@@ -228,6 +220,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore = "macOS backend readers are still placeholders")]
     fn spawn_publishes_only_while_watched() {
         let viewers = crate::viewers::Viewers::new();
         let (tx, mut rx) = watch::channel(None);

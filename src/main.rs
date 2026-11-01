@@ -1,19 +1,25 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
+// Portable core (no OS-specific code).
 mod aggregate;
 mod config;
+mod lan;
 mod model;
-mod priority;
 mod sampler;
 mod server;
 mod settings;
-mod tray;
 mod viewers;
+
+// Everything OS-specific: one backend per target OS (see src/platform/mod.rs).
+mod platform;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::watch;
+
+use platform::dialog::show_message_box;
+use platform::{priority, tray};
 
 const INTERVAL: Duration = Duration::from_millis(1000);
 
@@ -86,7 +92,7 @@ fn main() {
         port_change_tx: Some(port_tx),
     };
 
-    let lan_urls = tray::collect_lan_urls(active_port);
+    let lan_urls = lan::collect_lan_urls(active_port);
     println!("Tele-Task-Monitor serving {}", web_dir.display());
     for (url, iface) in &lan_urls {
         println!("  Open on iPad: {url}   ({iface})");
@@ -134,19 +140,6 @@ fn main() {
         })
         .expect("spawn http thread");
 
-    // Run the Win32 system tray icon & message loop on the main thread until the user clicks "Quit".
+    // Run the tray (Windows) / menu-bar (macOS) UI on the main thread until the user clicks "Quit".
     tray::run(active_port, lan_urls);
-}
-
-fn show_message_box(title: &str, text: &str, is_error: bool) {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MessageBoxW,
-    };
-    use windows::core::PCWSTR;
-    let wtitle: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-    let wtext: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-    let flags = if is_error { MB_OK | MB_ICONERROR } else { MB_OK | MB_ICONINFORMATION };
-    unsafe {
-        let _ = MessageBoxW(None, PCWSTR(wtext.as_ptr()), PCWSTR(wtitle.as_ptr()), flags);
-    }
 }

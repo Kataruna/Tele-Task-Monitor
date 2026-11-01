@@ -11,6 +11,9 @@ tower-http = { version = "0.7", features = ["fs", "set-header"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 if-addrs = "0.15"
+
+# ---- Windows backend (src/platform/windows/) ----
+[target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Graphics_Dxgi",
@@ -28,6 +31,11 @@ windows = { version = "0.62", features = [
   "Wdk_Graphics_Direct3D",
   "Wdk_System_SystemInformation",
 ] }
+
+# ---- macOS backend (src/platform/macos/) ----
+# Add macOS-only crates here (e.g. objc2 / objc2-app-kit for the menu-bar item, libc for
+# Mach / libproc calls) so they never get built on Windows.
+[target.'cfg(target_os = "macos")'.dependencies]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }

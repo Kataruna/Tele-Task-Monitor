@@ -8,15 +8,8 @@ use windows::Win32::System::SystemInformation::{
 use windows::Win32::System::Threading::GetSystemTimes;
 use windows::core::PWSTR;
 
-/// Busy % from time deltas. `idle` and `total` are deltas in the same unit;
-/// `total` = kernel + user, where kernel time already INCLUDES idle time (Windows semantics).
-pub fn busy_percent(idle: u64, total: u64) -> f32 {
-    if total == 0 {
-        return 0.0;
-    }
-    let busy = total.saturating_sub(idle) as f64 / total as f64;
-    (busy * 100.0).clamp(0.0, 100.0) as f32
-}
+use crate::platform::CpuLoad;
+use crate::sampler::cpu::busy_percent;
 
 /// Layout of SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION (48 bytes on x64).
 #[repr(C)]
@@ -104,8 +97,8 @@ pub struct CpuTimes {
     raw: Vec<ProcessorPerf>,
 }
 
-impl CpuTimes {
-    pub fn new(logical_cores: usize) -> Self {
+impl CpuLoad for CpuTimes {
+    fn new(logical_cores: usize) -> Self {
         Self {
             total_prev: Times::default(),
             cores_prev: vec![Times::default(); logical_cores],
@@ -115,7 +108,7 @@ impl CpuTimes {
 
     /// Returns (total %, per-core %) since the previous call. The first call returns
     /// averages since boot; callers discard it by priming.
-    pub fn update(&mut self) -> (f32, Vec<f32>) {
+    fn update(&mut self) -> (f32, Vec<f32>) {
         let total_now = {
             let (mut i, mut k, mut u) = (FILETIME::default(), FILETIME::default(), FILETIME::default());
             // SAFETY: valid out-pointers.
@@ -148,15 +141,6 @@ impl CpuTimes {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn busy_percent_basics() {
-        assert_eq!(busy_percent(0, 0), 0.0);
-        assert_eq!(busy_percent(100, 100), 0.0);
-        assert_eq!(busy_percent(25, 100), 75.0);
-        assert_eq!(busy_percent(0, 100), 100.0);
-        assert_eq!(busy_percent(200, 100), 0.0); // idle > total never goes negative
-    }
 
     #[test]
     fn machine_facts_look_sane() {

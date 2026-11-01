@@ -1,26 +1,12 @@
-//! Process snapshot via one `NtQuerySystemInformation(SystemProcessInformation)` call,
-//! plus per-process CPU % computed from CPU-time deltas between snapshots.
-
-use std::collections::HashMap;
-use std::time::Duration;
+//! Process snapshot via one `NtQuerySystemInformation(SystemProcessInformation)` call.
+//! Per-process CPU % is computed from these snapshots by the portable
+//! [`crate::sampler::cpu::CpuTracker`].
 
 use windows::Wdk::System::SystemInformation::{NtQuerySystemInformation, SystemProcessInformation};
 use windows::Win32::Foundation::STATUS_INFO_LENGTH_MISMATCH;
 
-use crate::aggregate::ProcRow;
-
-/// One process as read from the kernel snapshot.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RawProc {
-    pub pid: u32,
-    pub name: String,
-    /// Kernel + user CPU time, in 100 ns units.
-    pub cpu_time: i64,
-    /// Process creation time (FILETIME, 100 ns units). Used to detect PID reuse.
-    pub create_time: i64,
-    /// Private working set in bytes.
-    pub private_ws: u64,
-}
+use crate::platform::ProcessSource;
+use crate::sampler::cpu::RawProc;
 
 #[repr(C)]
 struct UnicodeString {
@@ -60,19 +46,19 @@ pub struct ProcSnapshot {
     hint_words: usize,
 }
 
-impl ProcSnapshot {
-    pub fn new() -> Self {
+impl ProcessSource for ProcSnapshot {
+    fn new() -> Self {
         Self { buf: Vec::new(), hint_words: 0 }
     }
 
     /// Free the buffer (the next `take` re-allocates it at its previous size).
-    pub fn release(&mut self) {
+    fn release(&mut self) {
         self.hint_words = self.hint_words.max(self.buf.len());
         self.buf = Vec::new();
     }
 
     /// Take one snapshot of every process on the system.
-    pub fn take(&mut self) -> Result<Vec<RawProc>, String> {
+    fn take(&mut self) -> Result<Vec<RawProc>, String> {
         if self.buf.is_empty() {
             self.buf.resize(self.hint_words.max(INITIAL_BUF_WORDS), 0);
         }
@@ -111,7 +97,7 @@ impl ProcSnapshot {
                 name,
                 cpu_time: e.user_time + e.kernel_time,
                 create_time: e.create_time,
-                private_ws: e.working_set_private_size.max(0) as u64,
+                mem: e.working_set_private_size.max(0) as u64,
             });
             if e.next_entry_offset == 0 {
                 break;
@@ -152,96 +138,9 @@ fn decode_image_name(us: &UnicodeString, base: *const u8, byte_len: usize) -> St
     String::from_utf16_lossy(s)
 }
 
-/// Turns successive snapshots into per-process CPU % of the whole machine.
-#[derive(Default)]
-pub struct CpuTracker {
-    /// pid -> (create_time, cpu_time) from the previous snapshot.
-    prev: HashMap<u32, (i64, i64)>,
-}
-
-impl CpuTracker {
-    /// Forget every baseline (call while idle: after a pause they are stale anyway). The next
-    /// `update` reports 0 % for everything, exactly like the first one.
-    pub fn clear(&mut self) {
-        self.prev = HashMap::new();
-    }
-
-    /// `wall` is the real time elapsed since the previous call. On the first call (or for a
-    /// process not seen before / whose PID was reused) CPU is reported as 0.
-    pub fn update(&mut self, procs: &[RawProc], wall: Duration, logical_cores: usize) -> Vec<ProcRow> {
-        let wall_100ns = wall.as_nanos() as f64 / 100.0;
-        let capacity = wall_100ns * logical_cores.max(1) as f64;
-        let mut next = HashMap::with_capacity(procs.len());
-        let rows = procs
-            .iter()
-            .map(|p| {
-                let cpu = match self.prev.get(&p.pid) {
-                    Some(&(created, before)) if created == p.create_time && capacity > 0.0 => {
-                        let delta = (p.cpu_time - before).max(0) as f64;
-                        ((delta / capacity) * 100.0).clamp(0.0, 100.0) as f32
-                    }
-                    _ => 0.0,
-                };
-                next.insert(p.pid, (p.create_time, p.cpu_time));
-                ProcRow { pid: p.pid, name: p.name.clone(), cpu, mem: p.private_ws }
-            })
-            .collect();
-        self.prev = next;
-        rows
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
-
-    fn raw(pid: u32, cpu_time: i64, create_time: i64) -> RawProc {
-        RawProc { pid, name: format!("p{pid}"), cpu_time, create_time, private_ws: 42 }
-    }
-
-    #[test]
-    fn first_update_reports_zero_cpu() {
-        let mut t = CpuTracker::default();
-        let rows = t.update(&[raw(1, 5_000_000, 7)], Duration::from_secs(1), 2);
-        assert_eq!(rows[0].cpu, 0.0);
-        assert_eq!(rows[0].mem, 42);
-    }
-
-    #[test]
-    fn one_core_busy_for_one_second_on_two_cores_is_fifty_percent() {
-        let mut t = CpuTracker::default();
-        t.update(&[raw(1, 0, 7)], Duration::from_secs(1), 2);
-        let rows = t.update(&[raw(1, 10_000_000, 7)], Duration::from_secs(1), 2);
-        assert!((rows[0].cpu - 50.0).abs() < 0.01, "{}", rows[0].cpu);
-    }
-
-    #[test]
-    fn all_cores_busy_is_one_hundred_percent() {
-        let mut t = CpuTracker::default();
-        t.update(&[raw(1, 0, 7)], Duration::from_secs(1), 12);
-        let rows = t.update(&[raw(1, 120_000_000, 7)], Duration::from_secs(1), 12);
-        assert!((rows[0].cpu - 100.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn cleared_tracker_starts_over() {
-        let mut t = CpuTracker::default();
-        t.update(&[raw(1, 0, 7)], Duration::from_secs(1), 1);
-        t.clear();
-        let rows = t.update(&[raw(1, 9_000_000, 7)], Duration::from_secs(1), 1);
-        assert_eq!(rows[0].cpu, 0.0, "no baseline after clear");
-        let rows = t.update(&[raw(1, 19_000_000, 7)], Duration::from_secs(1), 1);
-        assert!((rows[0].cpu - 100.0).abs() < 0.01, "baseline is re-established");
-    }
-
-    #[test]
-    fn reused_pid_is_treated_as_new_process() {
-        let mut t = CpuTracker::default();
-        t.update(&[raw(1, 0, 7)], Duration::from_secs(1), 1);
-        let rows = t.update(&[raw(1, 9_000_000, 8)], Duration::from_secs(1), 1);
-        assert_eq!(rows[0].cpu, 0.0);
-    }
 
     #[test]
     fn snapshot_contains_this_process() {
@@ -250,7 +149,7 @@ mod tests {
         let me = std::process::id();
         let mine = procs.iter().find(|p| p.pid == me).expect("own pid present");
         assert!(mine.name.to_lowercase().ends_with(".exe"), "name was {:?}", mine.name);
-        assert!(mine.private_ws > 0);
+        assert!(mine.mem > 0);
         assert!(procs.len() > 20);
     }
 

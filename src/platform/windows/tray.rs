@@ -55,26 +55,12 @@ fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-pub fn collect_lan_urls(port: u16) -> Vec<(String, String)> {
-    let addrs = if_addrs::get_if_addrs().unwrap_or_default();
-    let mut out = Vec::new();
-    for a in addrs.iter().filter(|a| !a.is_loopback()) {
-        if let std::net::IpAddr::V4(ip) = a.ip() {
-            if ip.is_link_local() {
-                continue;
-            }
-            out.push((format!("http://{ip}:{port}/"), a.name.clone()));
-        }
-    }
-    out
-}
-
 /// Update the tray icon tooltip and popup menu URLs when the port is changed in Settings.
 pub fn update_port(new_port: u16) {
     let Some(lock) = TRAY_CFG.get() else { return };
     let Ok(mut cfg) = lock.lock() else { return };
     cfg.port = new_port;
-    cfg.lan_urls = collect_lan_urls(new_port);
+    cfg.lan_urls = crate::lan::collect_lan_urls(new_port);
     if cfg.hwnd != 0 {
         let tip = if let Some((url, _)) = cfg.lan_urls.first() {
             format!("Tele-Task-Monitor — {url}")

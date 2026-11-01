@@ -25,22 +25,44 @@ Tele-Task-Monitor/
 │   ├── THEME_GUIDE.md          # Manual implementation guide & starter template for creating new themes
 │   └── THEME_GUIDE_AI.md       # AI Agent specification for zero-shot theme generation
 │
-├── src/                        # Rust Backend (Axum + Win32 / NT / DXGI / PDH)
+├── src/                        # Rust Backend (Axum). Portable core + one OS backend per platform
 │   ├── main.rs                 # Entry point, hot-reloading TCP listener, tray thread launch
-│   ├── tray.rs                 # Win32 System Tray icon, procedural ARGB icon, context menu
+│   │
+│   │   # ---- Portable core (no OS-specific code; shared by every platform) ----
 │   ├── server.rs               # Axum routes: `/api/stream` (SSE), `/api/settings` (GET/POST), static `web/`
 │   ├── settings.rs             # Persistent `UserSettings` (`settings.json`) load/save/sanitize
 │   ├── config.rs               # CLI flag parser (`--port`, `--bind`, `--web-dir`)
 │   ├── model.rs                # Wire JSON structs (`Info`, `Sample`, `AppEntry`)
 │   ├── aggregate.rs            # Case-insensitive process grouping & Top-N sorting
 │   ├── viewers.rs              # Active SSE viewer counter + Condvar sleep/wake gate
-│   ├── priority.rs             # `BELOW_NORMAL` process priority + EcoQoS power throttling
-│   └── sampler/                # Low-overhead Windows hardware & process readers
-│       ├── mod.rs              # 1 Hz sampling loop (sleeps when `viewers == 0`)
-│       ├── system.rs           # `GetSystemTimes`, `NtQuerySystemInformation` per-core CPU, RAM, CPUID
-│       ├── procs.rs            # `NtQuerySystemInformation(SystemProcessInformation)` CPU & private working set
-│       ├── gpu_adapter.rs      # DXGI hardware adapter selection + `D3DKMTQueryAdapterInfo` temp/power
-│       └── gpu_counters.rs     # PDH `GPU Engine` & `GPU Process Memory` filtered by primary adapter LUID
+│   ├── lan.rs                  # LAN URLs shown in the tray menu (`if-addrs`)
+│   ├── sampler/
+│   │   ├── mod.rs              # 1 Hz sampling loop (sleeps when `viewers == 0`), drives the platform readers
+│   │   ├── cpu.rs              # Busy % math, `RawProc`, per-process CPU % tracker
+│   │   └── gpu.rs              # `GpuReading` shared by all GPU readers
+│   │
+│   │   # ---- Everything OS-specific ----
+│   └── platform/
+│       ├── mod.rs              # Picks the backend for the target OS + the contract (traits) each backend implements
+│       ├── windows/            # Windows 10/11 backend (complete)
+│       │   ├── dialog.rs       # `MessageBoxW` error/help popup
+│       │   ├── priority.rs     # `BELOW_NORMAL` process priority + EcoQoS power throttling, working-set trim
+│       │   ├── tray.rs         # Win32 System Tray icon, procedural ARGB icon, context menu
+│       │   └── sampler/
+│       │       ├── mod.rs          # `Gpu` = DXGI adapter + PDH counters
+│       │       ├── system.rs       # `GetSystemTimes`, `NtQuerySystemInformation` per-core CPU, RAM, CPUID
+│       │       ├── procs.rs        # `NtQuerySystemInformation(SystemProcessInformation)` CPU time & private working set
+│       │       ├── gpu_adapter.rs  # DXGI hardware adapter selection + `D3DKMTQueryAdapterInfo` temp/power
+│       │       └── gpu_counters.rs # PDH `GPU Engine` & `GPU Process Memory` filtered by primary adapter LUID
+│       └── macos/              # macOS backend (skeleton: compiles, placeholder data, `TODO(macos)` notes)
+│           ├── dialog.rs       # Alert popup (TODO: `NSAlert`)
+│           ├── priority.rs     # Background QoS (TODO)
+│           ├── tray.rs         # Menu-bar item (TODO: `NSStatusItem`)
+│           └── sampler/
+│               ├── mod.rs
+│               ├── system.rs   # CPU / RAM (TODO: `host_processor_info`, `host_statistics64`)
+│               ├── procs.rs    # Processes (TODO: `proc_listpids` + `proc_pid_rusage`)
+│               └── gpu.rs      # GPU (TODO: IOKit `IOAccelerator` statistics)
 │
 └── web/                        # Frontend Host & Pluggable Themes (no build step required)
     ├── index.html              # Host shell, PWA meta tags, theme dropdown, and Settings modal
@@ -62,6 +84,27 @@ Tele-Task-Monitor/
             ├── style.css
             └── theme.js
 ```
+
+## Platform Support & Cross-Platform Development
+
+| Platform | Status |
+|---|---|
+| Windows 10 / 11 | Complete |
+| macOS | Skeleton. It builds and serves the dashboard, but readings are placeholders. See `src/platform/macos/mod.rs` for the work plan. |
+
+All OS-specific code lives under `src/platform/<os>/`. Everything else in `src/` and the whole `web/` folder is shared. `src/platform/mod.rs` defines the contract each backend must implement: the `CpuLoad`, `ProcessSource` and `GpuSource` traits, plus a few free functions such as `tray::run`. If a backend is missing a piece, it fails to compile. The `/api/stream` JSON is the same on every OS, so themes need no changes.
+
+To add a platform-specific dependency, put it under `[target.'cfg(windows)'.dependencies]` or `[target.'cfg(target_os = "macos")'.dependencies]` in `Cargo.toml`, so the other OS never builds it.
+
+You can type-check both backends from any machine (no linker needed):
+
+```bash
+rustup target add x86_64-pc-windows-msvc aarch64-apple-darwin
+cargo check --all-targets --target x86_64-pc-windows-msvc
+cargo check --all-targets --target aarch64-apple-darwin
+```
+
+To build and test for real, run `cargo test` and `cargo build --release` on the target OS itself.
 
 ---
 
