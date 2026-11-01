@@ -37,6 +37,9 @@ windows = { version = "0.62", features = [
 # Mach / libproc calls) so they never get built on Windows.
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObject", "NSThread"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSApplication", "NSResponder", "NSRunningApplication", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSImage", "NSCell", "NSButtonCell", "NSActionCell"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }
