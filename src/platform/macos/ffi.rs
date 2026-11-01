@@ -8,6 +8,7 @@ unsafe extern "C" {
     fn mach_host_self_raw() -> libc::mach_port_t;
     #[link_name = "mach_task_self_"]
     static MACH_TASK_SELF: libc::mach_port_t;
+    fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: libc::c_int) -> libc::c_int;
     #[link_name = "mach_timebase_info"]
     fn mach_timebase_info_raw(info: *mut Timebase) -> libc::c_int;
 }
@@ -41,4 +42,13 @@ pub fn host() -> libc::mach_port_t {
 pub fn task() -> libc::mach_port_t {
     // SAFETY: set by the kernel at process start and never written afterwards.
     unsafe { MACH_TASK_SELF }
+}
+
+/// `QOS_CLASS_UTILITY` from <sys/qos.h>: long-running work the user isn't waiting on.
+const QOS_CLASS_UTILITY: u32 = 0x11;
+
+/// Put the calling thread in the utility QoS class. Threads it creates afterwards inherit it.
+pub fn set_utility_qos() -> bool {
+    // SAFETY: plain pthread call on the current thread.
+    unsafe { pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0) == 0 }
 }
