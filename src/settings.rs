@@ -90,6 +90,10 @@ impl SettingsStore {
     }
 
     fn resolve_path(exe_dir: Option<&Path>) -> Option<PathBuf> {
+        // Per-user location chosen by the platform (e.g. inside a macOS .app bundle).
+        if let Some(dir) = crate::platform::settings_dir(exe_dir) {
+            return Some(dir.join("settings.json"));
+        }
         let cwd_file = PathBuf::from("settings.json");
         if cwd_file.is_file() {
             return Some(cwd_file);

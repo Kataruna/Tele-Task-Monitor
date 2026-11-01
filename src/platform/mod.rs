@@ -7,7 +7,7 @@
 //! | Target    | Backend              | Status                         |
 //! |-----------|----------------------|--------------------------------|
 //! | Windows   | `platform/windows/`  | Complete (Win32 / NT / DXGI / PDH) |
-//! | macOS     | `platform/macos/`    | Skeleton: compiles, reports placeholder data |
+//! | macOS     | `platform/macos/`    | Implemented (Mach / libproc / IOKit / AppKit) |
 //!
 //! # The contract every backend must provide
 //!
@@ -29,6 +29,8 @@
 //!   tray::run(port, lan_urls)       run the tray / menu-bar UI on the main thread until Quit
 //!   tray::update_port(port)         refresh the tray UI after the port changed in Settings
 //!   dialog::show_message_box(title, text, is_error)   blocking error / info popup
+//!   settings_dir(exe_dir) -> Option<PathBuf>   per-user folder for settings.json, or None to
+//!                                              keep the portable default (cwd / next to the exe)
 //! ```
 //!
 //! Portable helpers that a backend should reuse instead of re-implementing:
@@ -42,12 +44,12 @@ use crate::sampler::gpu::GpuReading;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use self::windows::{dialog, priority, sampler, tray};
+pub use self::windows::{dialog, priority, sampler, settings_dir, tray};
 
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
-pub use self::macos::{dialog, priority, sampler, tray};
+pub use self::macos::{dialog, priority, sampler, settings_dir, tray};
 
 #[cfg(not(any(windows, target_os = "macos")))]
 compile_error!(
@@ -104,6 +106,7 @@ const _: () = {
     let _: fn(u16, Vec<(String, String)>) = tray::run;
     let _: fn(u16) = tray::update_port;
     let _: fn(&str, &str, bool) = dialog::show_message_box;
+    let _: fn(Option<&std::path::Path>) -> Option<std::path::PathBuf> = settings_dir;
 
     fn assert_impls<C: CpuLoad, P: ProcessSource, G: GpuSource>() {}
     let _ = assert_impls::<sampler::CpuTimes, sampler::ProcSnapshot, sampler::Gpu>;

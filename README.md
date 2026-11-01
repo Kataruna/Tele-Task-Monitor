@@ -54,15 +54,18 @@ Tele-Task-Monitor/
 │       │       ├── procs.rs        # `NtQuerySystemInformation(SystemProcessInformation)` CPU time & private working set
 │       │       ├── gpu_adapter.rs  # DXGI hardware adapter selection + `D3DKMTQueryAdapterInfo` temp/power
 │       │       └── gpu_counters.rs # PDH `GPU Engine` & `GPU Process Memory` filtered by primary adapter LUID
-│       └── macos/              # macOS backend (skeleton: compiles, placeholder data, `TODO(macos)` notes)
-│           ├── dialog.rs       # Alert popup (TODO: `NSAlert`)
-│           ├── priority.rs     # Background QoS (TODO)
-│           ├── tray.rs         # Menu-bar item (TODO: `NSStatusItem`)
+│       └── macos/              # macOS 11+ backend (Apple Silicon & Intel)
+│           ├── ffi.rs          # Mach host/task ports, timebase, QoS declarations
+│           ├── dialog.rs       # Alert via `osascript`
+│           ├── priority.rs     # Utility QoS + nice 10
+│           ├── tray.rs         # `NSStatusItem` menu-bar item (objc2-app-kit)
 │           └── sampler/
 │               ├── mod.rs
-│               ├── system.rs   # CPU / RAM (TODO: `host_processor_info`, `host_statistics64`)
-│               ├── procs.rs    # Processes (TODO: `proc_listpids` + `proc_pid_rusage`)
-│               └── gpu.rs      # GPU (TODO: IOKit `IOAccelerator` statistics)
+│               ├── system.rs   # `host_processor_info` per-core CPU, `host_statistics64` RAM, `sysctl`
+│               ├── procs.rs    # `proc_listpids` + `proc_pid_rusage` CPU time & physical footprint
+│               └── gpu.rs      # IOKit `IOAccelerator` "PerformanceStatistics" usage & memory
+├── scripts/
+│   └── bundle-macos.sh         # Builds dist/Tele-Task-Monitor.app (menu-bar only, ad-hoc signed)
 │
 └── web/                        # Frontend Host & Pluggable Themes (no build step required)
     ├── index.html              # Host shell, PWA meta tags, theme dropdown, and Settings modal
@@ -90,7 +93,7 @@ Tele-Task-Monitor/
 | Platform | Status |
 |---|---|
 | Windows 10 / 11 | Complete |
-| macOS | Skeleton. It builds and serves the dashboard, but readings are placeholders. See `src/platform/macos/mod.rs` for the work plan. |
+| macOS 11+ (Apple Silicon & Intel) | Implemented (menu-bar app). Per-app GPU %, GPU temperature/power, and other users' processes aren't available through public macOS APIs, so those parts of the dashboard stay empty. |
 
 All OS-specific code lives under `src/platform/<os>/`. Everything else in `src/` and the whole `web/` folder is shared. `src/platform/mod.rs` defines the contract each backend must implement: the `CpuLoad`, `ProcessSource` and `GpuSource` traits, plus a few free functions such as `tray::run`. If a backend is missing a piece, it fails to compile. The `/api/stream` JSON is the same on every OS, so themes need no changes.
 
@@ -105,6 +108,20 @@ cargo check --all-targets --target aarch64-apple-darwin
 ```
 
 To build and test for real, run `cargo test` and `cargo build --release` on the target OS itself.
+
+### Running on macOS
+
+```bash
+xcode-select --install
+```
+```bash
+scripts/bundle-macos.sh
+```
+```bash
+open dist/Tele-Task-Monitor.app
+```
+
+A gauge icon appears in the menu bar. Its menu matches the Windows tray menu. Settings are stored in `~/Library/Application Support/Tele-Task-Monitor/settings.json`. The first time an iPad connects, macOS asks whether to accept incoming connections: click **Allow**. To run without bundling, use `cargo run --release` from the repo root.
 
 ---
 

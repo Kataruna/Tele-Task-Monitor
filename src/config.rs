@@ -44,15 +44,17 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Config, String> {
     Ok(cfg)
 }
 
-/// Explicit flag wins; otherwise `<exe dir>/web` if it exists; otherwise `./web`.
+/// Explicit flag wins; otherwise `<exe dir>/web`, then `<exe dir>/../Resources/web` (inside a
+/// macOS `.app` bundle) if either exists; otherwise `./web`.
 pub fn resolve_web_dir(explicit: Option<PathBuf>, exe_dir: Option<&Path>) -> PathBuf {
     if let Some(p) = explicit {
         return p;
     }
     if let Some(dir) = exe_dir {
-        let candidate = dir.join("web");
-        if candidate.is_dir() {
-            return candidate;
+        for candidate in [dir.join("web"), dir.join("../Resources/web")] {
+            if candidate.is_dir() {
+                return candidate;
+            }
         }
     }
     PathBuf::from("web")
