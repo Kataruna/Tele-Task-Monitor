@@ -12,6 +12,8 @@
 //!
 //! Put macOS-only crates under `[target.'cfg(target_os = "macos")'.dependencies]` in Cargo.toml.
 
+mod ffi;
+
 pub mod dialog;
 pub mod priority;
 pub mod sampler;

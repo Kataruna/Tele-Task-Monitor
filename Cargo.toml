@@ -36,6 +36,7 @@ windows = { version = "0.62", features = [
 # Add macOS-only crates here (e.g. objc2 / objc2-app-kit for the menu-bar item, libc for
 # Mach / libproc calls) so they never get built on Windows.
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }

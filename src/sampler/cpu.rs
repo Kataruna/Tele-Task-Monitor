@@ -10,8 +10,6 @@ use crate::aggregate::ProcRow;
 /// Busy % from time deltas. `idle` and `total` are deltas in the same unit, and `total`
 /// INCLUDES the idle time (on Windows, kernel time already contains idle; other platforms
 /// add idle in themselves).
-// Unused on macOS until its CPU reader is implemented (see platform/macos/sampler/system.rs).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn busy_percent(idle: u64, total: u64) -> f32 {
     if total == 0 {
         return 0.0;
